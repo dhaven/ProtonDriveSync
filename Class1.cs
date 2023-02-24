@@ -5,42 +5,46 @@ using System.Drawing;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 using System.Windows.Forms;
 using System.Net.Http;
 using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Net;
+using System.Data.SqlTypes;
+using System.IO;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.ProgressBar;
+using System.Collections;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.StartPanel;
+using System.Security.Policy;
 
 using KeePass.Forms;
 using KeePass.Plugins;
 using KeePass.Resources;
 using KeePass.UI;
+using KeePass.App.Configuration;
 
 using KeePassLib;
 using KeePassLib.Security;
 using KeePassLib.Utility;
+using KeePass.Ecas;
 
 using Newtonsoft.Json;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.StartPanel;
-using System.Security.Policy;
-using PgpCore;
-using System.IO;
-using System.Reflection;
+using Newtonsoft.Json.Linq;
 
 using Org.BouncyCastle.Bcpg;
 using Org.BouncyCastle.Bcpg.OpenPgp;
-using System.Security.Cryptography.X509Certificates;
 using Org.BouncyCastle.Asn1.X9;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.ProgressBar;
-using System.Collections;
 using Org.BouncyCastle.Crypto.IO;
-using Newtonsoft.Json.Linq;
-using Org.BouncyCastle.Utilities;
-using System.Security.Cryptography;
 using Org.BouncyCastle.Utilities.Encoders;
+using Org.BouncyCastle.Utilities;
 using static BCrypt.Net.BCrypt;
-using KeePass.Ecas;
-using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Net;
+using PgpCore;
+using System.Collections.Specialized;
 
 namespace ProtonSecrets
 {
@@ -66,9 +70,6 @@ namespace ProtonSecrets
             Debug.WriteLine("Response:");
             Debug.WriteLine(response.ToString());
             Debug.WriteLine("cookies:");
-            //IEnumerable<Cookie> responseCookies = cookies.GetCookies(request.RequestUri).Cast<Cookie>();
-            //foreach (Cookie cookie in responseCookies)
-            //    Console.WriteLine(cookie.Name + ": " + cookie.Value);
             if (response.Content != null)
             {
                 Debug.WriteLine(await response.Content.ReadAsStringAsync());
@@ -91,13 +92,31 @@ namespace ProtonSecrets
         private const string OptionEntries30 = "SamplePlugin_Entries30";
 
         TextBox m_txtUsername = new TextBox();
-        private string username { get { return m_txtUsername.Text.Trim(); } }
+        private string USERNAME { get { return m_txtUsername.Text.Trim(); } }
 
         TextBox m_txtPassword = new TextBox();
-        private string password { get { return m_txtPassword.Text.Trim(); } }
+        private string PASSWORD { get { return m_txtPassword.Text.Trim(); } }
 
         TextBox m_txt2fa = new TextBox();
-        private string twofa { get { return m_txt2fa.Text.Trim(); } }
+        private string TWOFA { get { return m_txt2fa.Text.Trim(); } }
+
+        private HttpClient client;
+
+        private string SRP_MODULUS_KEY = @"-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+                xjMEXAHLgxYJKwYBBAHaRw8BAQdAFurWXXwjTemqjD7CXjXVyKf0of7n9Ctm
+                L8v9enkzggHNEnByb3RvbkBzcnAubW9kdWx1c8J3BBAWCgApBQJcAcuDBgsJ
+                BwgDAgkQNQWFxOlRjyYEFQgKAgMWAgECGQECGwMCHgEAAPGRAP9sauJsW12U
+                MnTQUZpsbJb53d0Wv55mZIIiJL2XulpWPQD / V6NglBd96lZKBmInSXX / kXat
+                Sv + y0io + LR8i2 + jV + AbOOARcAcuDEgorBgEEAZdVAQUBAQdAeJHUz1c9 + KfE
+                kSIgcBRE3WuXC4oj5a2 / U3oASExGDW4DAQgHwmEEGBYIABMFAlwBy4MJEDUF
+                hcTpUY8mAhsMAAD / XQD8DxNI6E78meodQI + wLsrKLeHn32iLvUqJbVDhfWSU
+                WO4BAMcm1u02t4VKw++ttECPt + HUgPUq5pqQWe5Q2cW4TMsE
+                = Y4Mw
+                ---- - END PGP PUBLIC KEY BLOCK-----";
+        private int SRP_LEN_BYTES = 256;
+        private string email = "";
+        private string keyPassword = "";
 
         public override bool Initialize(IPluginHost host)
         {
@@ -111,7 +130,61 @@ namespace ProtonSecrets
             // the current database
             m_host.MainWindow.FileSaved += this.OnFileSaved;
 
+            CookieContainer cookies = new CookieContainer();
+            HttpClientHandler handler = new HttpClientHandler();
+            handler.CookieContainer = cookies;
+            client = new HttpClient(new LoggingHandler(handler));
+            client.DefaultRequestHeaders.Add("x-pm-appversion", "Other");
+            client.DefaultRequestHeaders.Add("User-Agent", "None");
+            LoadSessionFromLocalSecureStore();
             return true; // Initialization successful
+        }
+
+        private void SaveSessionToLocalSecureStore(JObject sessionData)
+        {
+            var path = ConfigurationInfo();
+            var filename = Path.Combine(path, "session.json");
+
+            var configString = JsonConvert.SerializeObject(sessionData);
+
+            File.WriteAllText(filename, configString);
+        }
+
+        private void LoadSessionFromLocalSecureStore()
+        {
+            var path = ConfigurationInfo();
+            var filename = Path.Combine(path, "session.json");
+            if (!File.Exists(filename))
+                return;
+            var configString = File.ReadAllText(filename);
+            if (string.IsNullOrEmpty(configString)) return;
+            JObject bodyData = JObject.Parse(configString);
+            client.DefaultRequestHeaders.Add("x-pm-uid", (string)bodyData["UID"]);
+            client.DefaultRequestHeaders.Add("Authorization", "Bearer " + (string)bodyData["AccessToken"]);
+            this.keyPassword = (string)bodyData["KeyPassword"];
+            this.email = (string)bodyData["Email"];
+            return;
+        }
+
+        private string ConfigurationInfo()
+        {
+            var isGlobalConfig = !KeePass.Program.Config.Meta.PreferUserConfiguration;
+            var asm = Assembly.GetEntryAssembly();
+            var filename = asm.Location;
+            var directory = Path.GetDirectoryName(filename);
+
+            bool _isPortable = isGlobalConfig
+                && !directory.StartsWith(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles))
+                && !directory.StartsWith(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86));
+
+            if (_isPortable)
+            {
+                return directory;
+            }
+            else
+            {
+                return AppConfigSerializer.AppDataDirectory;
+            }
         }
 
         public override void Terminate()
@@ -196,7 +269,8 @@ namespace ProtonSecrets
 
             Label m_lblUsername = new Label();
             Label m_lblPassword = new Label();
-            Button m_btnTest = new Button();
+            Button m_btnLogin = new Button();
+            Button m_btnDecrypt = new Button();
             Label m_lbl2fa = new Label();
 
             m_lblUsername.AutoSize = true;
@@ -241,14 +315,23 @@ namespace ProtonSecrets
             m_txt2fa.Size = new Size(265, 20);
             m_txt2fa.TabIndex = 5;
 
-            m_btnTest.Anchor = ((AnchorStyles)((AnchorStyles.Bottom | AnchorStyles.Left)));
-            m_btnTest.Location = new Point(12, 301);
-            m_btnTest.Name = "m_btnTest";
-            m_btnTest.Size = new Size(75, 23);
-            m_btnTest.TabIndex = 6;
-            m_btnTest.Text = "&Test";
-            m_btnTest.UseVisualStyleBackColor = true;
-            m_btnTest.Click += new EventHandler(this.OnTest);
+            m_btnLogin.Anchor = ((AnchorStyles)((AnchorStyles.Bottom | AnchorStyles.Left)));
+            m_btnLogin.Location = new Point(12, 301);
+            m_btnLogin.Name = "m_btnLogin";
+            m_btnLogin.Size = new Size(75, 23);
+            m_btnLogin.TabIndex = 6;
+            m_btnLogin.Text = "Login";
+            m_btnLogin.UseVisualStyleBackColor = true;
+            m_btnLogin.Click += new EventHandler(this.OnLogin);
+
+            m_btnDecrypt.Anchor = ((AnchorStyles)((AnchorStyles.Bottom | AnchorStyles.Right)));
+            m_btnDecrypt.Location = new Point(87, 301);
+            m_btnDecrypt.Name = "m_btnDecrypt";
+            m_btnDecrypt.Size = new Size(75, 23);
+            m_btnDecrypt.TabIndex = 6;
+            m_btnDecrypt.Text = "Decrypt";
+            m_btnDecrypt.UseVisualStyleBackColor = true;
+            m_btnDecrypt.Click += new EventHandler(this.OnDecrypt);
 
             GroupBox m_grpCredentials = new GroupBox();
             m_grpCredentials.SuspendLayout();
@@ -261,7 +344,8 @@ namespace ProtonSecrets
             m_grpCredentials.Controls.Add(m_txtPassword);
             m_grpCredentials.Controls.Add(m_lbl2fa);
             m_grpCredentials.Controls.Add(m_txt2fa);
-            form1.Controls.Add(m_btnTest);
+            form1.Controls.Add(m_btnLogin);
+            form1.Controls.Add(m_btnDecrypt);
             m_grpCredentials.Font = new Font("Microsoft Sans Serif", 8.25F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(0)));
             m_grpCredentials.Location = new Point(12, 66);
             m_grpCredentials.Name = "m_grpCredentials";
@@ -358,204 +442,376 @@ namespace ProtonSecrets
             return answer;
         }
 
-        private async void OnTest(object sender, EventArgs e)
+        /// <summary>
+        ///  Encode a byte array using BCrypt's slightly-modified base64 encoding scheme. Note that this
+        ///  is *not* compatible with the standard MIME-base64 encoding.
+        /// </summary>
+        /// <exception cref="ArgumentException">Thrown when one or more arguments have unsupported or
+        ///                                     illegal values.</exception>
+        /// <param name="byteArray">The byte array to encode.</param>
+        /// <param name="length">   The number of bytes to encode.</param>
+        /// <returns>Base64-encoded string.</returns>
+        private char[] EncodeBase64(byte[] byteArray, int length)
         {
-            // Call asynchronous network methods in a try/catch block to handle exceptions.
-            try
+            // Table for Base64 encoding
+            char[] Base64Code = {
+                '.', '/', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
+                'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V',
+                'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
+                'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't',
+                'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5',
+                '6', '7', '8', '9'
+            };
+            if (length <= 0 || length > byteArray.Length)
             {
-                CookieContainer cookies = new CookieContainer();
-                HttpClientHandler handler = new HttpClientHandler();
-                handler.CookieContainer = cookies;
-                HttpClient client = new HttpClient(new LoggingHandler(handler));
-                Dictionary<string, string> payload = new Dictionary<string, string>();
-                payload["Username"] = "david.haven@pm.me";
-                string json = JsonConvert.SerializeObject(payload, Formatting.Indented);
-                StringContent data = new StringContent(json, Encoding.UTF8, "application/json");
-                client.DefaultRequestHeaders.Add("x-pm-appversion", "Other");
-                client.DefaultRequestHeaders.Add("User-Agent", "None");
-                HttpResponseMessage response = await client.PostAsync("https://api.protonmail.ch/auth/info", data);
-                IEnumerable<Cookie> responseCookies = cookies.GetCookies(new Uri("https://api.protonmail.ch/auth/info")).Cast<Cookie>();
-                foreach (Cookie cookie in responseCookies)
-                    Debug.WriteLine(cookie.Name + ": " + cookie.Value);
-                response.EnsureSuccessStatusCode();
-                string responseBody = await response.Content.ReadAsStringAsync();
-                //string responseBody = "{\"Code\": 1000, \"Modulus\": \"-----BEGIN PGP SIGNED MESSAGE-----\\nHash: SHA256\\n\\n67ZJBtn5Tgo6fQhwCHa19MzSBCdReZctJlBKt/o4MOgaEPfSMyfwkW8RO9Gg6q0mnf90QlWB2a4C3iQv/i6qT1W2ZoHRgCERiP3xI+TW7+ObmVkZCsqlGE0uBObnXPFEqKTAbInmjRDYGBofFzUIks0hHjbpwjfkUq/uR/01PONm1VCQVki4bUJTZ6wxmDy96Z1NnbnrwYkwJs6XTnrSM4oXJwVZr2YSbycJwaDZNaXoltq6+44ZP5O6xBU+Y/vmXjd0WvVGuzMohG8JWryEb805k08iP8uoQQy0P6NUZwOzJSiMrPVye1uzLcJwOZOeAb+QfnN79XhZTTh2kPfE8w==\\n-----BEGIN PGP SIGNATURE-----\\nVersion: ProtonMail\\nComment: https://protonmail.com\\n\\nwl4EARYIABAFAlwB1jwJEDUFhcTpUY8mAABHNgEAlLgC6LYQ16GBUAUxyVK4\\nLfO74OsOhjfvWTkxDai8+9wBANA1X/Oe6zuHNP4Td7HCH1U071zle3yg8cCC\\naLEYnbIG\\n=Mfxn\\n-----END PGP SIGNATURE-----\\n\", \"ServerEphemeral\": \"nTKNGGnF0kkr16Ivb5r/wwaXTw39titwOGlrt7+qPY41CRrdJx7qLuoFoZMT5jSyRJUAB5TBuKx7oOxmUmAg96ppEzHQPX92gBd0OHP5FGef9Whd4xpLyh6SytwrAWQjvCW1qXrU8qIagFxeaQIpd8FkY00LF3vim2Cr4esG7pEM1jWzUYqhFIt/KTPx5H232zwcKChOiPtcP6I090eP/Tkjm+xojKV7Cr5Qgp1NzQF3t0mah3P4SgNkFocWMGw7UW1W77KAIg5WwZVBi8eq3kq0zWUJEGThZtDfBuKT43dQY9oo+ARi3bctCdcMwgX8j07R6TOumgkZTBWc/tMIrw==\", \"Version\": 4, \"Salt\": \"WY1ntCu3u9yiLA==\", \"SRPSession\": \"a786b9a69182945aeffb2423404c4887\"}";
-                Dictionary<string, string> authInfo = JsonConvert.DeserializeObject<Dictionary<string, string>>(responseBody);
-                // Load keys
-                string SRP_MODULUS_KEY = @"-----BEGIN PGP PUBLIC KEY BLOCK-----
+                throw new ArgumentException("Invalid length", nameof(length));
+            }
 
-                xjMEXAHLgxYJKwYBBAHaRw8BAQdAFurWXXwjTemqjD7CXjXVyKf0of7n9Ctm
-                L8v9enkzggHNEnByb3RvbkBzcnAubW9kdWx1c8J3BBAWCgApBQJcAcuDBgsJ
-                BwgDAgkQNQWFxOlRjyYEFQgKAgMWAgECGQECGwMCHgEAAPGRAP9sauJsW12U
-                MnTQUZpsbJb53d0Wv55mZIIiJL2XulpWPQD / V6NglBd96lZKBmInSXX / kXat
-                Sv + y0io + LR8i2 + jV + AbOOARcAcuDEgorBgEEAZdVAQUBAQdAeJHUz1c9 + KfE
-                kSIgcBRE3WuXC4oj5a2 / U3oASExGDW4DAQgHwmEEGBYIABMFAlwBy4MJEDUF
-                hcTpUY8mAhsMAAD / XQD8DxNI6E78meodQI + wLsrKLeHn32iLvUqJbVDhfWSU
-                WO4BAMcm1u02t4VKw++ttECPt + HUgPUq5pqQWe5Q2cW4TMsE
-                = Y4Mw
-                ---- - END PGP PUBLIC KEY BLOCK-----";
-                int SRP_LEN_BYTES = 256;
-                EncryptionKeys encryptionKeys = new EncryptionKeys(SRP_MODULUS_KEY);
+            int encodedSize = (int)Math.Ceiling((length * 4D) / 3);
+            char[] encoded = new char[encodedSize];
 
-                // Verify signed  message
-                PGP pgp = new PGP(encryptionKeys);
-                bool verified = await pgp.VerifyClearArmoredStringAsync(authInfo["Modulus"]);
-                VerificationResult result = await pgp.VerifyAndReadClearArmoredStringAsync(authInfo["Modulus"]);
-
-                //get other info from response
-                int version = int.Parse(authInfo["Version"]);
-                byte[] server_challenge = Convert.FromBase64String(authInfo["ServerEphemeral"]);
-                byte[] salt = Convert.FromBase64String(authInfo["Salt"]);
-
-                //compute N
-                byte[] modulus = Convert.FromBase64String(result.ClearText);
-                BigInteger N = ByteToBigInteger(modulus);
-
-                //compute g
-                byte[] g = new byte[SRP_LEN_BYTES];
-                g[0] = 2;
-                BigInteger gBig = ByteToBigInteger(g);
-
-                //compute k
-                byte[] kLowerInputHash = Concat(g, modulus);
-                byte[] k = Digest(kLowerInputHash);
-                BigInteger kBig = ByteToBigInteger(k);
-
-                //compute a and A
-                Random rand = new Random();
-                byte[] a = new byte[] { 52, 61, 160, 234, 67, 215, 153, 254, 181, 157, 4, 100, 16, 65, 87, 237, 83, 201, 88, 180, 226, 174, 161, 216, 63, 99, 153, 243, 82, 107, 20, 170, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-                //rand.NextBytes(a);
-                BigInteger aBig = ByteToBigInteger(a);
-                BigInteger A = BigInteger.ModPow(gBig, aBig, N);
-
-                //compute u
-                byte[] uLowerInputHash = Concat(A.ToByteArray(), server_challenge);
-                byte[] u = Digest(uLowerInputHash);
-                BigInteger uBig = ByteToBigInteger(u);
-
-                if(version == 4 || version == 3)
+            int pos = 0;
+            int off = 0;
+            while (off < length)
+            {
+                int c1 = byteArray[off++] & 0xff;
+                encoded[pos++] = Base64Code[(c1 >> 2) & 0x3f];
+                c1 = (c1 & 0x03) << 4;
+                if (off >= length)
                 {
-                    //Compute the salt for the password hash
-                    byte[] protonBytes = Encoding.ASCII.GetBytes("proton");
-                    byte[] sShort = TakeSuffix(Concat(salt, protonBytes), 16);
-                    string s = Convert.ToBase64String(sShort);
-                    byte[] newSalt = Encoding.ASCII.GetBytes(s);
-                    byte[] bcrypt_base64 = Encoding.ASCII.GetBytes("./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
-                    byte[] std_base64chars = Encoding.ASCII.GetBytes("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/");
-                    Dictionary<byte, byte> translation = new Dictionary<byte, byte>();
-                    for (int i = 0; i < std_base64chars.Length; i++)
-                    {
-                        byte nextByte = std_base64chars[i];
-                        translation[nextByte] = bcrypt_base64[i];
-                    }
-                    byte[] newSalt2 = new byte[newSalt.Length];
-                    for(int i = 0; i < newSalt.Length; i++)
-                    {
-                        if (translation.ContainsKey(newSalt[i]))
-                        {
-                            newSalt2[i] = translation[newSalt[i]];
-                        }
-                        else
-                        {
-                            newSalt2[i] = newSalt[i];
-                        }
-                    }
-                    byte[] saltPrefix = Encoding.ASCII.GetBytes("$2y$10$");
-                    byte[] saltFinal = Concat(saltPrefix, newSalt2);
-                    string saltFinalString = Encoding.ASCII.GetString(saltFinal);
-                    // Hash the user's password
-                    string passwordHash = HashPassword("", saltFinalString);
-                    byte[] hashedPwdByte = Encoding.ASCII.GetBytes(passwordHash);
-                    // Compute x (private key)
-                    byte[] xLowerInputHash = Concat(hashedPwdByte, modulus);
-                    byte[] x = Digest(xLowerInputHash);
-                    BigInteger xBig = ByteToBigInteger(x);
-                    // Compute v
-                    BigInteger vBig = BigInteger.ModPow(gBig, xBig, N);
-                    // Compute S (K)
-                    BigInteger BBig = ByteToBigInteger(server_challenge);
-                    BigInteger sValue = BBig - (kBig * vBig);
-                    BigInteger sExponent = aBig + (uBig * xBig);
-                    BigInteger SBig = BigInteger.ModPow(sValue, sExponent, N);
-                    if (sValue.Sign == -1) // see https://stackoverflow.com/questions/74664517/c-sharp-gives-me-different-result-of-modpow-from-java-python-is-this-a-bug
-                    {
-                        SBig += N;
-                    }
-                    byte[] K = TakePrefix(SBig.ToByteArray(), SRP_LEN_BYTES);
-                    // Compute M
-                    byte[] mUpperInputHash = Concat(Concat(A.ToByteArray(), server_challenge),K);
-                    byte[] M = Digest(mUpperInputHash);
-                    BigInteger KBig = ByteToBigInteger(K);
-                    // Compute expected server proof
-                    byte[] ESPInputHash = Concat(Concat(A.ToByteArray(), M), K);
-                    byte[] expectedServerProof = Digest(ESPInputHash);
-                    BigInteger expectedServerProofBig = ByteToBigInteger(expectedServerProof);
-
-                    //post auth info to Proton API
-                    Dictionary<string, string> SRPAuth = new Dictionary<string, string>();
-                    SRPAuth["Username"] = "";
-                    SRPAuth["ClientEphemeral"] = Convert.ToBase64String(A.ToByteArray());
-                    SRPAuth["ClientProof"] = Convert.ToBase64String(M);
-                    SRPAuth["SRPSession"] = authInfo["SRPSession"];
-                    string SRPAuthJson = JsonConvert.SerializeObject(SRPAuth);
-                    StringContent SRPAuthData = new StringContent(SRPAuthJson, Encoding.UTF8, "application/json");
-                    HttpResponseMessage SRPAuthResponse = await client.PostAsync("https://api.protonmail.ch/auth", SRPAuthData);
-                    //SRPAuthResponse.EnsureSuccessStatusCode();
-                    string SRPAuthResponseBody = await SRPAuthResponse.Content.ReadAsStringAsync();
-                    JObject authResultJSON = JObject.Parse(SRPAuthResponseBody);
-                    if (!authResultJSON.ContainsKey("ServerProof"))
-                    {
-                        MessageService.ShowInfo("Invalid password");
-                        return;
-                    }
-                    byte[] actualServerProof = Convert.FromBase64String((string)authResultJSON["ServerProof"]);
-                    BigInteger actualServerProofBig = ByteToBigInteger(actualServerProof);
-                    if (expectedServerProofBig == actualServerProofBig)
-                    {
-                        MessageService.ShowInfo("Authenticated");
-                        JObject sessionData = new JObject();
-                        sessionData["UID"] = new JValue((string)authResultJSON["UID"]);
-                        sessionData["AccessToken"] = new JValue((string)authResultJSON["AccessToken"]);
-                        sessionData["RefreshToken"] = new JValue((string)authResultJSON["RefreshToken"]);
-                        sessionData["PasswordMode"] = new JValue((string)authResultJSON["PasswordMode"]);
-                        string[] scope = ((string)authResultJSON["Scope"]).Split(' ');
-                        sessionData["Scope"] = new JArray(scope);
-
-                        client.DefaultRequestHeaders.Add("x-pm-uid", (string)authResultJSON["UID"]);
-                        client.DefaultRequestHeaders.Add("Authorization", "Bearer " + (string)authResultJSON["AccessToken"]);
-
-                        if(((string)authResultJSON["Scope"]).Split(' ').Contains("twofactor"))
-                        {
-                            string twoFactor = this.twofa;
-                            Dictionary<string, string> twoFAAuth = new Dictionary<string, string>();
-                            twoFAAuth["TwoFactorCode"] = twoFactor;
-                            string twoFAAuthJson = JsonConvert.SerializeObject(twoFAAuth, Formatting.Indented);
-                            StringContent twoFAAuthData = new StringContent(twoFAAuthJson, Encoding.UTF8, "application/json");
-                            HttpResponseMessage twoFAAuthResponse = await client.PostAsync("https://api.protonmail.ch/auth/2fa", twoFAAuthData);
-                            //twoFAAuthResponse.EnsureSuccessStatusCode();
-                            string twoFAAuthResponseBody = await twoFAAuthResponse.Content.ReadAsStringAsync();
-                            JObject twoFAAuthResultJSON = JObject.Parse(twoFAAuthResponseBody);
-                            sessionData["Scope"] = (string)twoFAAuthResultJSON["Scope"];
-                            MessageService.ShowInfo(sessionData);
-                            HttpResponseMessage userInfoResponse = await client.GetAsync("https://api.protonmail.ch/drive/shares?ShowAll=1");
-                            //userInfoResponse.EnsureSuccessStatusCode();
-                            string userInfoResponseBody = await userInfoResponse.Content.ReadAsStringAsync();
-                            JObject userInfoResponseJSON = JObject.Parse(userInfoResponseBody);
-                        }
-                    }
-
-
-                    MessageService.ShowInfo("ok");
+                    encoded[pos++] = Base64Code[c1 & 0x3f];
+                    break;
                 }
 
+                int c2 = byteArray[off++] & 0xff;
+                c1 |= (c2 >> 4) & 0x0f;
+                encoded[pos++] = Base64Code[c1 & 0x3f];
+                c1 = (c2 & 0x0f) << 2;
+                if (off >= length)
+                {
+                    encoded[pos++] = Base64Code[c1 & 0x3f];
+                    break;
+                }
+
+                c2 = byteArray[off++] & 0xff;
+                c1 |= (c2 >> 6) & 0x03;
+                encoded[pos++] = Base64Code[c1 & 0x3f];
+                encoded[pos++] = Base64Code[c2 & 0x3f];
             }
-            catch (HttpRequestException exception)
+
+            return encoded;
+        }
+
+        private async Task<JObject> ProtonRequest(string method, string url, StringContent data = null)
+        {
+            if(method == "POST")
             {
-                Console.WriteLine("\nException Caught!");
-                Console.WriteLine("Message :{0} ", exception.Message);
-                MessageService.ShowInfo(exception.Message);
+                try
+                {
+                    HttpResponseMessage response = await client.PostAsync(url, data);
+                    //response.EnsureSuccessStatusCode();
+                    string responseBody = await response.Content.ReadAsStringAsync();
+                    JObject bodyData = JObject.Parse(responseBody);
+                    return bodyData;
+                }
+                catch (HttpRequestException exception)
+                {
+                    Console.WriteLine("\nException Caught!");
+                    Console.WriteLine("Message :{0} ", exception.Message);
+                    MessageService.ShowInfo(exception.Message);
+                    return null;
+                }
+            }
+            else
+            {
+                try
+                {
+                    HttpResponseMessage response = await client.GetAsync(url);
+                    //response.EnsureSuccessStatusCode();
+                    string responseBody = await response.Content.ReadAsStringAsync();
+                    JObject bodyData = JObject.Parse(responseBody); ;
+                    return bodyData;
+                }
+                catch (HttpRequestException exception)
+                {
+                    Console.WriteLine("\nException Caught!");
+                    Console.WriteLine("Message :{0} ", exception.Message);
+                    MessageService.ShowInfo(exception.Message);
+                    return null;
+                }
             }
         }
+
+        private string ProtonSalt(byte[] salt)
+        {
+            //Compute the salt for the password hash
+            byte[] protonBytes = Encoding.ASCII.GetBytes("proton");
+            byte[] sShort = TakeSuffix(Concat(salt, protonBytes), 16);
+            string s = Convert.ToBase64String(sShort);
+            byte[] newSalt = Encoding.ASCII.GetBytes(s);
+            byte[] bcrypt_base64 = Encoding.ASCII.GetBytes("./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
+            byte[] std_base64chars = Encoding.ASCII.GetBytes("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/");
+            Dictionary<byte, byte> translation = new Dictionary<byte, byte>();
+            for (int i = 0; i < std_base64chars.Length; i++)
+            {
+                byte nextByte = std_base64chars[i];
+                translation[nextByte] = bcrypt_base64[i];
+            }
+            byte[] newSalt2 = new byte[newSalt.Length];
+            for (int i = 0; i < newSalt.Length; i++)
+            {
+                if (translation.ContainsKey(newSalt[i]))
+                {
+                    newSalt2[i] = translation[newSalt[i]];
+                }
+                else
+                {
+                    newSalt2[i] = newSalt[i];
+                }
+            }
+            byte[] saltPrefix = Encoding.ASCII.GetBytes("$2y$10$");
+            byte[] saltFinal = Concat(saltPrefix, newSalt2);
+            return Encoding.ASCII.GetString(saltFinal);
+        }
+        private async Task<JObject> SRPCheck(string base64Modulus, byte[] server_challenge, int version, byte[] salt,string username, string password, string srpSession)
+        {
+            //compute N
+            byte[] modulus = Convert.FromBase64String(base64Modulus);
+            BigInteger N = ByteToBigInteger(modulus);
+            //compute g
+            byte[] g = new byte[SRP_LEN_BYTES];
+            g[0] = 2;
+            BigInteger gBig = ByteToBigInteger(g);
+            //compute k
+            byte[] kLowerInputHash = Concat(g, modulus);
+            byte[] k = Digest(kLowerInputHash);
+            BigInteger kBig = ByteToBigInteger(k);
+            //compute a and A
+            Random rand = new Random();
+            byte[] a = new byte[] { 52, 61, 160, 234, 67, 215, 153, 254, 181, 157, 4, 100, 16, 65, 87, 237, 83, 201, 88, 180, 226, 174, 161, 216, 63, 99, 153, 243, 82, 107, 20, 170, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+            //rand.NextBytes(a);
+            BigInteger aBig = ByteToBigInteger(a);
+            BigInteger A = BigInteger.ModPow(gBig, aBig, N);
+            //compute u
+            byte[] uLowerInputHash = Concat(A.ToByteArray(), server_challenge);
+            byte[] u = Digest(uLowerInputHash);
+            BigInteger uBig = ByteToBigInteger(u);
+            if (version != 4 && version != 3)
+            {
+                return null;
+            }
+            // Hash the user's password
+            string customSalt = ProtonSalt(salt);
+            string passwordHash = HashPassword(password, customSalt);
+            byte[] hashedPwdByte = Encoding.ASCII.GetBytes(passwordHash);
+            // Compute x (private key)
+            byte[] xLowerInputHash = Concat(hashedPwdByte, modulus);
+            byte[] x = Digest(xLowerInputHash);
+            BigInteger xBig = ByteToBigInteger(x);
+            // Compute v
+            BigInteger vBig = BigInteger.ModPow(gBig, xBig, N);
+            // Compute S (K)
+            BigInteger BBig = ByteToBigInteger(server_challenge);
+            BigInteger sValue = BBig - (kBig * vBig);
+            BigInteger sExponent = aBig + (uBig * xBig);
+            BigInteger SBig = BigInteger.ModPow(sValue, sExponent, N);
+            if (sValue.Sign == -1) // see https://stackoverflow.com/questions/74664517/c-sharp-gives-me-different-result-of-modpow-from-java-python-is-this-a-bug
+            {
+                SBig += N;
+            }
+            byte[] K = TakePrefix(SBig.ToByteArray(), SRP_LEN_BYTES);
+            // Compute M
+            byte[] mUpperInputHash = Concat(Concat(A.ToByteArray(), server_challenge), K);
+            byte[] M = Digest(mUpperInputHash);
+            BigInteger KBig = ByteToBigInteger(K);
+            // Compute expected server proof
+            byte[] ESPInputHash = Concat(Concat(A.ToByteArray(), M), K);
+            byte[] expectedServerProof = Digest(ESPInputHash);
+            BigInteger expectedServerProofBig = ByteToBigInteger(expectedServerProof);
+            //post auth info to Proton API
+            Dictionary<string, string> SRPAuth = new Dictionary<string, string>();
+            SRPAuth["Username"] = username;
+            SRPAuth["ClientEphemeral"] = Convert.ToBase64String(A.ToByteArray());
+            SRPAuth["ClientProof"] = Convert.ToBase64String(M);
+            SRPAuth["SRPSession"] = srpSession;
+            string SRPAuthJson = JsonConvert.SerializeObject(SRPAuth);
+            StringContent SRPAuthData = new StringContent(SRPAuthJson, Encoding.UTF8, "application/json");
+            JObject srpResult = await ProtonRequest("POST", "https://api.protonmail.ch/auth", SRPAuthData);
+            if (srpResult != null && !srpResult.ContainsKey("ServerProof"))
+            {
+                return null;
+            }else if(srpResult == null){
+                return null;
+            }
+            byte[] actualServerProof = Convert.FromBase64String((string)srpResult["ServerProof"]);
+            BigInteger actualServerProofBig = ByteToBigInteger(actualServerProof);
+            if (expectedServerProofBig == actualServerProofBig)
+            {
+                MessageService.ShowInfo("Authenticated");
+                return srpResult;
+            }
+            return null;
+        }
+        private async Task<bool> Login(string username, string password)
+        {
+            Dictionary<string, string> authPayload = new Dictionary<string, string>();
+            authPayload["Username"] = username;
+            string json = JsonConvert.SerializeObject(authPayload, Formatting.Indented);
+            StringContent data = new StringContent(json, Encoding.UTF8, "application/json");
+            JObject authInfo = await ProtonRequest("POST", "https://api.protonmail.ch/auth/info", data);
+            EncryptionKeys encryptionKeys = new EncryptionKeys(SRP_MODULUS_KEY);
+            // Verify signed  message
+            PGP pgp = new PGP(encryptionKeys);
+            bool verified = await pgp.VerifyClearArmoredStringAsync((string)authInfo["Modulus"]);
+            VerificationResult result = await pgp.VerifyAndReadClearArmoredStringAsync((string)authInfo["Modulus"]);
+            //get other info from response
+            int version = int.Parse((string)authInfo["Version"]);
+            byte[] server_challenge = Convert.FromBase64String((string)authInfo["ServerEphemeral"]);
+            byte[] salt = Convert.FromBase64String((string)authInfo["Salt"]);
+            //validate SRP authentication
+            JObject srpRes = await SRPCheck(result.ClearText, server_challenge, version, salt,username, password, (string)authInfo["SRPSession"]);
+            if(srpRes == null)
+            {
+                MessageService.ShowInfo("failed SRP authentication");
+                return false;
+            }
+            //session object should be stored in file cache
+            JObject sessionData = new JObject();
+            sessionData["UID"] = new JValue((string)srpRes["UID"]);
+            sessionData["AccessToken"] = new JValue((string)srpRes["AccessToken"]);
+            sessionData["RefreshToken"] = new JValue((string)srpRes["RefreshToken"]);
+            sessionData["PasswordMode"] = new JValue((string)srpRes["PasswordMode"]);
+            string[] scope = ((string)srpRes["Scope"]).Split(' ');
+            sessionData["Scope"] = new JArray(scope);
+
+            //add headers for later requests
+            client.DefaultRequestHeaders.Add("x-pm-uid", (string)srpRes["UID"]);
+            client.DefaultRequestHeaders.Add("Authorization", "Bearer " + (string)srpRes["AccessToken"]);
+
+            if (((string)srpRes["Scope"]).Split(' ').Contains("twofactor"))
+            {
+                string twoFactor = this.TWOFA;
+                Dictionary<string, string> twoFAAuth = new Dictionary<string, string>();
+                twoFAAuth["TwoFactorCode"] = twoFactor;
+                string twoFAAuthJson = JsonConvert.SerializeObject(twoFAAuth, Formatting.Indented);
+                StringContent twoFAAuthData = new StringContent(twoFAAuthJson, Encoding.UTF8, "application/json");
+                JObject twoFAAuthInfo = await ProtonRequest("POST", "https://api.protonmail.ch/auth/2fa", twoFAAuthData);
+                sessionData["Scope"] = (string)twoFAAuthInfo["Scope"];
+            }
+            sessionData["Email"] = username;
+            sessionData["KeyPassword"] = await computeKeyPassword(password);
+            SaveSessionToLocalSecureStore(sessionData);
+            return true;
+        }
+
+        private async Task<string> computeKeyPassword(string password)
+        {
+            //Get user info
+            JObject userInfo = await ProtonRequest("GET", "https://api.protonmail.ch/users");
+            JArray userKeys = (JArray)userInfo["User"]["Keys"];
+            string userKeyID = "";
+            string userPrivateKey = "";
+            for (int i = 0; i < userKeys.Count(); i++)
+            {
+                if ((int)userKeys[i]["Primary"] == 1)
+                {
+                    userKeyID = (string)userKeys[i]["ID"];
+                    userPrivateKey = (string)userKeys[i]["PrivateKey"];
+                }
+            }
+            //Get salts info
+            JObject saltsInfo = await ProtonRequest("GET", "https://api.protonmail.ch/keys/salts");
+            JArray userKeySalt = (JArray)saltsInfo["KeySalts"];
+            string keySalt = "";
+            for (int i = 0; i < userKeySalt.Count(); i++)
+            {
+                if ((string)userKeySalt[i]["ID"] == userKeyID)
+                {
+                    keySalt = (string)userKeySalt[i]["KeySalt"];
+                }
+            }
+            byte[] keySalt_byte = Convert.FromBase64String(keySalt);
+            string keySalt_bcrypt = new string(EncodeBase64(keySalt_byte, 16));
+            string finalSalt = "$2y$10$" + keySalt_bcrypt;
+            string passwordHash = HashPassword(password, finalSalt);
+            return passwordHash.Substring(29);
+        }
+        private async void OnLogin(object sender, EventArgs e)
+        {
+            string username = USERNAME;
+            string password = PASSWORD;
+            bool successLogin = await Login(username, password);
+            if (!successLogin)
+            {
+                MessageService.ShowInfo("Failed login step");
+                return;
+            }
+
+            //EncryptionKeys adddressKeys = new EncryptionKeys(addressPrivateKey, decryptedToken);
+            //PGP addressKeys_pgp = new PGP(adddressKeys);
+            //string sharePrivateKey = "";
+            //string sharePassphrase = "";
+            //string sharePassphraseSignature = ""
+            //Decrypt share session key
+            //string decryptedPassPhrase = await addressKeys_pgp.DecryptArmoredStringAsync(sharePassphrase);
+
+            //string linkName = "";
+            //EncryptionKeys shareKeys = new EncryptionKeys(sharePrivateKey, decryptedPassPhrase);
+            //PGP shareKeys_pgp = new PGP(shareKeys);
+            //Decrypt link name
+            //string decryptedLinkName = await shareKeys_pgp.DecryptArmoredStringAsync(linkName);
+            //MessageService.ShowInfo(decryptedLinkName);
+
+        }
+
+        private async void OnDecrypt(object sender, EventArgs e)
+        {
+            //Get user info
+            JObject userInfo = await ProtonRequest("GET", "https://api.protonmail.ch/users");
+            JArray userKeys = (JArray)userInfo["User"]["Keys"];
+            string userKeyID = "";
+            string userPrivateKey = "";
+            for (int i = 0; i < userKeys.Count(); i++)
+            {
+                if ((int)userKeys[i]["Primary"] == 1)
+                {
+                    userKeyID = (string)userKeys[i]["ID"];
+                    userPrivateKey = (string)userKeys[i]["PrivateKey"];
+                }
+            }
+            //Get address info
+            JObject addressInfo = await ProtonRequest("GET", "https://api.protonmail.ch/addresses");
+            JArray addresses = (JArray)addressInfo["Addresses"];
+            JArray keys = null;
+            for (int i = 0; i < addresses.Count(); i++)
+            {
+                if ((string)addresses[i]["Email"] == this.email)
+                {
+                    keys = (JArray)addresses[i]["Keys"];
+                }
+            }
+            string addressPrivateKey = "";
+            string addressPublicKey = "";
+            string addressToken = "";
+            for (int i = 0; i < keys.Count(); i++)
+            {
+                if ((int)keys[i]["Primary"] == 1)
+                {
+                    addressPrivateKey = (string)keys[i]["PrivateKey"];
+                    addressPublicKey = (string)keys[i]["PublicKey"];
+                    addressToken = (string)keys[i]["Token"];
+                }
+            }
+            EncryptionKeys encryptionKeys = new EncryptionKeys(userPrivateKey, this.keyPassword);
+            PGP userPrivateKey_pgp = new PGP(encryptionKeys);
+            //Decrypt addressToken
+            string decryptedToken = await userPrivateKey_pgp.DecryptArmoredStringAsync(addressToken);
+
+            EncryptionKeys adddressKeys = new EncryptionKeys(addressPrivateKey, decryptedToken);
+            PGP addressKeys_pgp = new PGP(adddressKeys);
+
+        }
+
 
         private void OnMenuEntries30(object sender, EventArgs e)
         {
