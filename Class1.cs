@@ -1,11 +1,13 @@
 ﻿using System;
 using System.Windows.Forms;
 using KeePass.Plugins;
+using KeePass.UI;
 using KeePassLib.Utility;
 using KeePassLib.Serialization;
 
 using ProtonSecrets.Configuration;
 using ProtonSecrets.StorageProvider;
+using ProtonSecrets.Forms;
 
 namespace ProtonSecrets
 {
@@ -58,19 +60,19 @@ namespace ProtonSecrets
             _uiService.ShowSettingsDialog();
         }
 
-        private void OnOpenFromProtonDrive(object sender, EventArgs eventArgs)
+        private async void OnOpenFromProtonDrive(object sender, EventArgs eventArgs)
         {
             // First usage: register new account
             if (!HasAccounts()) return;
 
-            //var form = new CloudDriveFilePicker();
-            //form.InitEx(_configService, _storageService, _kpResources, CloudDriveFilePicker.Mode.Open);
-            //var result = UIUtil.ShowDialogAndDestroy(form);
+            var form = new ProtonDriveFilePicker();
+            await form.InitEx(_configService, _storageService, ProtonDriveFilePicker.Mode.Open);
+            var result = UIUtil.ShowDialogAndDestroy(form);
 
-            //if (result != DialogResult.OK)
-            //    return;
+            if (result != DialogResult.OK)
+                return;
 
-            var ci = IOConnectionInfo.FromPath("proton:///Database-test.kdbx");
+            var ci = IOConnectionInfo.FromPath("proton:///" + form.ResultUri);
             ci.CredSaveMode = IOCredSaveMode.SaveCred;
 
             _host.MainWindow.OpenDatabase(ci, null, false);
