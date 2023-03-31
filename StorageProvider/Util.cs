@@ -8,6 +8,7 @@ using System.Numerics;
 
 using static BCrypt.Net.BCrypt;
 using System.IO;
+using Org.BouncyCastle.Tls;
 
 namespace ProtonSecrets.StorageProvider
 {
@@ -346,6 +347,17 @@ namespace ProtonSecrets.StorageProvider
             }
 
             return plaintext;
+        }
+
+        public static string ConvertByteUnits(int data)
+        {
+            if (data < 1000) return data.ToString() + " B";
+
+            if (data < 1000000) return (data / 1000).ToString() + " KB";
+
+            if (data < 1000000000) return (data / 1000000).ToString() + " MB";
+
+            return (data / 1000000000).ToString() + " GB";
         }
     }
 }

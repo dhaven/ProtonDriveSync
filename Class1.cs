@@ -20,6 +20,7 @@ namespace ProtonSecrets
         private IPluginHost _host;
         private StorageService _storageService;
         private UIService _uiService;
+        private KpResources _kpResources;
 
         public override bool Initialize(IPluginHost pluginHost)
         {
@@ -38,6 +39,9 @@ namespace ProtonSecrets
 
             // Initialize UIService
             _uiService = new UIService(_configService, _storageService);
+
+            // Initialize KeePass-Resource Service
+            _kpResources = new KpResources(_host);
 
             // Add "Open from ProtonDrive..." to File\Open menu.
             var fileMenu = _host.MainWindow.MainMenu.Items["m_menuFile"] as ToolStripMenuItem;
@@ -66,7 +70,7 @@ namespace ProtonSecrets
             if (!HasAccounts()) return;
 
             var form = new ProtonDriveFilePicker();
-            await form.InitEx(_configService, _storageService, ProtonDriveFilePicker.Mode.Open);
+            await form.InitEx(_configService, _storageService, _kpResources, ProtonDriveFilePicker.Mode.Open);
             var result = UIUtil.ShowDialogAndDestroy(form);
 
             if (result != DialogResult.OK)

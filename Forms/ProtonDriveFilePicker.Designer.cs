@@ -28,11 +28,14 @@
         /// </summary>
         private void InitializeComponent()
         {
+            this.components = new System.ComponentModel.Container();
             this.m_btnOk = new System.Windows.Forms.Button();
             this.m_btnCancel = new System.Windows.Forms.Button();
             this.m_lvDetails = new System.Windows.Forms.ListView();
+            this.m_ilFiletypeIcons = new System.Windows.Forms.ImageList(this.components);
             this.m_lblFilename = new System.Windows.Forms.Label();
             this.m_txtFilename = new System.Windows.Forms.TextBox();
+            this.m_cbFilter = new System.Windows.Forms.ComboBox();
             this.SuspendLayout();
             // 
             // m_btnOk
@@ -73,11 +76,18 @@
             this.m_lvDetails.MultiSelect = false;
             this.m_lvDetails.Name = "m_lvDetails";
             this.m_lvDetails.Size = new System.Drawing.Size(747, 328);
+            this.m_lvDetails.SmallImageList = this.m_ilFiletypeIcons;
             this.m_lvDetails.TabIndex = 12;
             this.m_lvDetails.UseCompatibleStateImageBehavior = false;
             this.m_lvDetails.View = System.Windows.Forms.View.Details;
             this.m_lvDetails.ItemSelectionChanged += new System.Windows.Forms.ListViewItemSelectionChangedEventHandler(this.OnItemSelectionChanged);
             this.m_lvDetails.DoubleClick += new System.EventHandler(this.OnItemDoubleClick);
+            // 
+            // m_ilFiletypeIcons
+            // 
+            this.m_ilFiletypeIcons.ColorDepth = System.Windows.Forms.ColorDepth.Depth8Bit;
+            this.m_ilFiletypeIcons.ImageSize = new System.Drawing.Size(16, 16);
+            this.m_ilFiletypeIcons.TransparentColor = System.Drawing.Color.Transparent;
             // 
             // m_lblFilename
             // 
@@ -86,7 +96,7 @@
             this.m_lblFilename.Location = new System.Drawing.Point(16, 354);
             this.m_lblFilename.Margin = new System.Windows.Forms.Padding(4, 0, 4, 0);
             this.m_lblFilename.Name = "m_lblFilename";
-            this.m_lblFilename.Size = new System.Drawing.Size(66, 16);
+            this.m_lblFilename.Size = new System.Drawing.Size(32, 16);
             this.m_lblFilename.TabIndex = 13;
             this.m_lblFilename.Text = "File:";
             // 
@@ -100,6 +110,18 @@
             this.m_txtFilename.Size = new System.Drawing.Size(460, 22);
             this.m_txtFilename.TabIndex = 14;
             // 
+            // m_cbFilter
+            // 
+            this.m_cbFilter.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
+            this.m_cbFilter.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.m_cbFilter.FormattingEnabled = true;
+            this.m_cbFilter.Location = new System.Drawing.Point(560, 350);
+            this.m_cbFilter.Margin = new System.Windows.Forms.Padding(4);
+            this.m_cbFilter.Name = "m_cbFilter";
+            this.m_cbFilter.Size = new System.Drawing.Size(207, 24);
+            this.m_cbFilter.TabIndex = 15;
+            this.m_cbFilter.SelectedIndexChanged += new System.EventHandler(this.OnFilterChanged);
+            // 
             // ProtonDriveFilePicker
             // 
             this.AcceptButton = this.m_btnOk;
@@ -107,6 +129,7 @@
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.CancelButton = this.m_btnCancel;
             this.ClientSize = new System.Drawing.Size(784, 441);
+            this.Controls.Add(this.m_cbFilter);
             this.Controls.Add(this.m_txtFilename);
             this.Controls.Add(this.m_lblFilename);
             this.Controls.Add(this.m_lvDetails);
@@ -132,5 +155,7 @@
         private System.Windows.Forms.ListView m_lvDetails;
         private System.Windows.Forms.Label m_lblFilename;
         private System.Windows.Forms.TextBox m_txtFilename;
+        private System.Windows.Forms.ComboBox m_cbFilter;
+        private System.Windows.Forms.ImageList m_ilFiletypeIcons;
     }
 }

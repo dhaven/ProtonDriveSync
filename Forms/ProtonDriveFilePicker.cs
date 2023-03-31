@@ -4,6 +4,7 @@ using Newtonsoft.Json.Linq;
 using ProtonSecrets.Configuration;
 using ProtonSecrets.StorageProvider;
 using System;
+using System.IO;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -14,11 +15,15 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.Tab;
+using Org.BouncyCastle.Asn1.Ocsp;
 
 namespace ProtonSecrets.Forms
 {
     public partial class ProtonDriveFilePicker : Form
     {
+        private const string IconFolder = "folder";
+        private const string IconDatabase = "database";
+        private const string IconDocument = "document";
         public enum Mode
         {
             Unknown,
@@ -34,6 +39,7 @@ namespace ProtonSecrets.Forms
         private readonly Stack<IEnumerable<ProtonDriveItem>> m_stack = new Stack<IEnumerable<ProtonDriveItem>>();
         private string folderPath;
         private string filename;
+        private KpResources m_kpResources;
 
         public string ResultUri
         {
@@ -48,14 +54,16 @@ namespace ProtonSecrets.Forms
             InitializeComponent();
         }
 
-        public async Task InitEx(ConfigurationService configService, StorageService storageService, Mode mode)
+        public async Task InitEx(ConfigurationService configService, StorageService storageService, KpResources kpResources, Mode mode)
         {
             if (configService == null) throw new ArgumentNullException("configService");
             if (storageService == null) throw new ArgumentNullException("storageService");
+            if (kpResources == null) throw new ArgumentNullException("kpResources");
             if (mode == Mode.Unknown) throw new ArgumentException("mode");
 
             m_configService = configService;
             m_storageService = storageService;
+            m_kpResources = kpResources;
             m_provider = new ProtonDriveStorageProvider(configService.Account);
             await m_provider.Init();
             m_mode = mode;
@@ -68,13 +76,21 @@ namespace ProtonSecrets.Forms
 
             m_isInit = true;
 
+            m_ilFiletypeIcons.Images.Add(IconFolder, m_kpResources.B16x16_Folder);
+            m_ilFiletypeIcons.Images.Add(IconDatabase, m_kpResources.B16x16_KeePass);
+            m_ilFiletypeIcons.Images.Add(IconDocument, m_kpResources.B16x16_Binary);
+
+            m_cbFilter.Items.Add("KeePass KDBX Files (*.kdbx)");
+            m_cbFilter.Items.Add("All Files (*.*)");
+            m_cbFilter.SelectedIndex = 0;
+
             m_lvDetails.Columns.Add("Name");
-            m_lvDetails.Columns.Add("Id");
+            m_lvDetails.Columns.Add("Size");
             m_lvDetails.Columns.Add("Type");
             m_lvDetails.Columns.Add("Changed Date");
 
             UIUtil.ResizeColumns(m_lvDetails, new int[] {
-                4, 1, 1, 1 }, true);
+                3, 1, 1, 2 }, true);
 
             m_isInit = false;
 
@@ -149,27 +165,35 @@ namespace ProtonSecrets.Forms
                 ProtonDriveItem parentDummyItem = new ProtonDriveItem();
                 parentDummyItem.Type = StorageProviderItemType.Folder;
                 lvi.Tag = parentDummyItem;
-                lvi.SubItems.Add(string.Empty);
+                lvi.ImageKey = IconFolder;
+                lvi.SubItems.Add("-");
                 lvi.SubItems.Add("Folder");
                 lvi.SubItems.Add(string.Empty);
             }
             foreach (var child in m_selectedItem)
             {
+                var ext = Path.GetExtension(child.Name);
+                if (m_cbFilter.SelectedIndex == 0 && child.Type == StorageProviderItemType.File && (string.IsNullOrEmpty(ext) || ext.ToLower() != ".kdbx"))
+                    continue;
+
                 var lvi = m_lvDetails.Items.Add(child.Name);
                 lvi.Tag = child;
-                lvi.SubItems.Add(child.Id);
+                lvi.SubItems.Add(child.Size == null? "-": child.Size);
                 switch (child.Type)
                 {
                     case StorageProviderItemType.Folder:
+                        lvi.ImageKey = IconFolder;
                         lvi.SubItems.Add("Folder");
                         break;
                     case StorageProviderItemType.File:
+                        lvi.ImageKey = GetIconKey(child.Name);
                         lvi.SubItems.Add("File");
                         break;
                     default:
                         lvi.SubItems.Add("Unknown");
                         break;
                 }
+                lvi.SubItems.Add(child.LastModifiedDateTime.HasValue ? child.LastModifiedDateTime.Value.LocalDateTime.ToString() : null);
             }
             m_lvDetails.EndUpdate();
         }
@@ -219,6 +243,11 @@ namespace ProtonSecrets.Forms
             }
         }
 
+        private async void OnFilterChanged(object sender, EventArgs e)
+        {
+            await UpdateListView();
+        }
+
         private string GetFilePath()
         {
             return folderPath + filename;
@@ -233,6 +262,15 @@ namespace ProtonSecrets.Forms
             string[] folders = folderPath.Split(new string[]{ "/"}, StringSplitOptions.RemoveEmptyEntries);
             folders[folders.Length - 1] = "";
             folderPath = string.Join("/", folders);
+        }
+
+        private string GetIconKey(string filename)
+        {
+            var extension = Path.GetExtension(filename);
+
+            if (string.IsNullOrEmpty(extension)) return IconDocument;
+
+            return extension.ToLower() == ".kdbx" ? IconDatabase : IconDocument;
         }
     }
 }

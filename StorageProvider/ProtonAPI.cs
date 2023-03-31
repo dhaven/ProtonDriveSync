@@ -17,9 +17,6 @@ using static BCrypt.Net.BCrypt;
 using PgpCore;
 
 using ProtonSecrets.Configuration;
-using static System.Windows.Forms.LinkLabel;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.ListView;
-using KeePassLib.Keys;
 
 namespace ProtonSecrets.StorageProvider {
 
@@ -282,6 +279,11 @@ namespace ProtonSecrets.StorageProvider {
                 nextChild.ParentKeys = subNodeKeys_pgp;
                 nextChild.ShareId = ShareId;
                 nextChild.Id = (string)childrenLinks["Links"][i]["LinkID"];
+                if((int)childrenLinks["Links"][i]["Size"] != 0)
+                {
+                    nextChild.Size = Util.ConvertByteUnits((int)childrenLinks["Links"][i]["Size"]);
+                }
+                nextChild.LastModifiedDateTime =  DateTimeOffset.FromUnixTimeSeconds((long)childrenLinks["Links"][i]["ModifyTime"]);
                 if ((int)childrenLinks["Links"][i]["Type"] == 1)
                 {
                     nextChild.Type = StorageProviderItemType.Folder;
@@ -310,12 +312,12 @@ namespace ProtonSecrets.StorageProvider {
             //recursively traverse the folders until we reach our file
             for (int i = 0; i < folders.Length; i++)
             {
-                current = await getFolderKeys(current, folders[i]);
+                current = await GetFolderKeys(current, folders[i]);
             }
             return await DownloadBlockData(current.LinkID, current.ParentKeys, this.shareId);
         }
 
-        private async Task<ProtonLink> getFolderKeys(ProtonLink current, string folder)
+        private async Task<ProtonLink> GetFolderKeys(ProtonLink current, string folder)
         {
             JObject linkInfo = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareId + "/links/" + current.LinkID);
             string nodePrivateKey = (string)linkInfo["Link"]["NodeKey"];
