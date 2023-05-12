@@ -14,7 +14,7 @@ namespace ProtonSecrets.Configuration
         private const string ConfigurationFile_Accounts = "ProtonPass.Accounts.json";
 
         public AccountConfiguration Account { get; set; }
-        public bool IsLoaded { get; private set; }
+        public bool IsLoaded { get; set; }
 
 
         public void Load()
@@ -30,8 +30,6 @@ namespace ProtonSecrets.Configuration
             if (string.IsNullOrEmpty(configString)) 
                 return;
             JObject bodyData = JObject.Parse(configString);
-            //client.DefaultRequestHeaders.Add("x-pm-uid", (string)bodyData["UID"]);
-            //client.DefaultRequestHeaders.Add("Authorization", "Bearer " + (string)bodyData["AccessToken"]);
             this.Account = new AccountConfiguration((string)bodyData["KeyPassword"], (string)bodyData["Email"], (string)bodyData["UID"], (string)bodyData["AccessToken"]);
             IsLoaded = true;
         }

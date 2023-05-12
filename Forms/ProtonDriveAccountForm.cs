@@ -3,6 +3,7 @@ using System.Windows.Forms;
 using System.Drawing;
 using KeePass.UI;
 using ProtonSecrets.Configuration;
+using System.Threading.Tasks;
 
 namespace ProtonSecrets.StorageProvider
 {
@@ -24,13 +25,12 @@ namespace ProtonSecrets.StorageProvider
         public AccountConfiguration Account;
         private ProtonAPI _api;
 
-
         protected bool? TestResult { get; set; }
 
-        public ProtonDriveAccountForm()
+        public ProtonDriveAccountForm(ProtonAPI api)
         {
             InitializeComponent();
-            _api = new ProtonAPI();
+            _api = api;
         }
 
         private void OnFormLoad(object sender, EventArgs e)
@@ -50,6 +50,12 @@ namespace ProtonSecrets.StorageProvider
             //Set TestResult to True if successfully logged in
             if (this.Account != null)
                 this.DialogResult = DialogResult.OK;
+        }
+
+        private async void OnDecrypt(object sender, EventArgs e)
+        {
+            //upload file
+            await _api.Upload();
         }
 
         private void OnFormClosing(object sender, FormClosingEventArgs e)
@@ -133,7 +139,7 @@ namespace ProtonSecrets.StorageProvider
             this.m_btnDecrypt.TabIndex = 6;
             this.m_btnDecrypt.Text = "Decrypt";
             this.m_btnDecrypt.UseVisualStyleBackColor = true;
-            //this.m_btnDecrypt.Click += new EventHandler(this.OnDecrypt);
+            this.m_btnDecrypt.Click += new EventHandler(this.OnDecrypt);
 
 
             this.m_grpCredentials.Anchor = ((AnchorStyles)(((AnchorStyles.Top | AnchorStyles.Left) | AnchorStyles.Right)));

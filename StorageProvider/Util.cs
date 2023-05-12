@@ -234,11 +234,11 @@ namespace ProtonSecrets.StorageProvider
             BigInteger BBig = ByteToBigInteger(server_challenge);
             BigInteger sValue = BBig - (kBig * vBig);
             BigInteger sExponent = aBig + (uBig * xBig);
-            BigInteger SBig = BigInteger.ModPow(sValue, sExponent, N);
             if (sValue.Sign == -1) // see https://stackoverflow.com/questions/74664517/c-sharp-gives-me-different-result-of-modpow-from-java-python-is-this-a-bug
             {
-                SBig += N;
+                sValue += N;
             }
+            BigInteger SBig = BigInteger.ModPow(sValue, sExponent, N);
             byte[] K = TakePrefix(SBig.ToByteArray(), Util.SRP_LEN_BYTES);
             // Compute M
             byte[] mUpperInputHash = Concat(Concat(A.ToByteArray(), server_challenge), K);
@@ -358,6 +358,47 @@ namespace ProtonSecrets.StorageProvider
             if (data < 1000000000) return (data / 1000000).ToString() + " MB";
 
             return (data / 1000000000).ToString() + " GB";
+        }
+
+        public static string ByteArrayToHexString(byte[] ba)
+        {
+            StringBuilder hex = new StringBuilder(ba.Length * 2);
+            foreach (byte b in ba)
+                hex.AppendFormat("{0:x2}", b);
+            return hex.ToString();
+        }
+
+        /**
+ * Generate a string of four random hex characters
+ */
+        public static string RandomHexString()
+        {
+            Random rand = new Random();
+            byte[] bytes = new byte[2];
+            rand.NextBytes(bytes);
+            return ByteArrayToHexString(bytes);
+        }
+
+        /**
+         * Generates a contact UID of the form 'proton-web-uuid'
+         */
+        public static string GenerateProtonWebUID()
+        {
+            StringBuilder uid = new StringBuilder();
+            uid.Append("proton-web-");
+            uid.Append(RandomHexString());
+            uid.Append(RandomHexString());
+            uid.Append("-");
+            uid.Append(RandomHexString());
+            uid.Append("-");
+            uid.Append(RandomHexString());
+            uid.Append("-");
+            uid.Append(RandomHexString());
+            uid.Append("-");
+            uid.Append(RandomHexString());
+            uid.Append(RandomHexString());
+            uid.Append(RandomHexString());
+            return uid.ToString();
         }
     }
 }

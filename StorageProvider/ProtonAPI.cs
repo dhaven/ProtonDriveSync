@@ -17,31 +17,49 @@ using static BCrypt.Net.BCrypt;
 using PgpCore;
 
 using ProtonSecrets.Configuration;
+using Org.BouncyCastle.Crypto.Generators;
+using Org.BouncyCastle.Crypto.Parameters;
+using Org.BouncyCastle.Crypto;
+using Org.BouncyCastle.Security;
+using Org.BouncyCastle.Bcpg.OpenPgp;
+using Org.BouncyCastle.Bcpg;
+using System.Security.Cryptography;
 
 namespace ProtonSecrets.StorageProvider {
 
-    public class ProtonAPI {
+    public class ProtonAPI
+    {
 
         private HttpClient client;
         private string shareId;
         public PGP addressKeys;
 
+        private string addressKeyPassphrase = "7f7**";
+        private string parentNodePassphrase = "zGl**";
+        private string ParentLinkID = "0vh**";
+        private string shareID = "AQ**";
+        private string addressID = "Yu**";
+        private string decryptedParentNodeHashKey = "C8z**";
+        private string myemail = "da**";
+
         internal class ProtonLink
         {
             public PGP ParentKeys;
             public string LinkID;
-            public ProtonLink(PGP parentKey, string linkID) {
+            public ProtonLink(PGP parentKey, string linkID)
+            {
                 ParentKeys = parentKey;
                 LinkID = linkID;
             }
         }
 
-        public ProtonAPI(){
+        public ProtonAPI()
+        {
             this.client = new HttpClient();
             this.client.DefaultRequestHeaders.Add("x-pm-appversion", "Other");
             this.client.DefaultRequestHeaders.Add("User-Agent", "None");
         }
-        public void addAuthHeaders(string UID, string accessToken)
+        public void AddAuthHeaders(string UID, string accessToken)
         {
             this.client.DefaultRequestHeaders.Remove("x-pm-uid");
             this.client.DefaultRequestHeaders.Add("x-pm-uid", UID);
@@ -108,6 +126,24 @@ namespace ProtonSecrets.StorageProvider {
                 try
                 {
                     HttpResponseMessage response = await this.client.PostAsync(url, data);
+                    //response.EnsureSuccessStatusCode();
+                    string responseBody = await response.Content.ReadAsStringAsync();
+                    JObject bodyData = JObject.Parse(responseBody);
+                    return bodyData;
+                }
+                catch (HttpRequestException exception)
+                {
+                    Console.WriteLine("\nException Caught!");
+                    Console.WriteLine("Message :{0} ", exception.Message);
+                    MessageService.ShowInfo(exception.Message);
+                    return null;
+                }
+            }
+            else if(method == "PUT")
+            {
+                try
+                {
+                    HttpResponseMessage response = await this.client.PutAsync(url, data);
                     //response.EnsureSuccessStatusCode();
                     string responseBody = await response.Content.ReadAsStringAsync();
                     JObject bodyData = JObject.Parse(responseBody);
@@ -193,7 +229,7 @@ namespace ProtonSecrets.StorageProvider {
             SRP srpRes = Util.SRPCheck(result.ClearText, server_challenge, version, salt, username, password, (string)authInfo["SRPSession"]);
             if (srpRes == null)
             {
-                MessageService.ShowInfo("failed SRP authentication");
+                MessageService.ShowInfo("failed SRP authentication: unable to compute the proof");
                 return null;
             }
             //Validate SRP proof against the server
@@ -207,7 +243,7 @@ namespace ProtonSecrets.StorageProvider {
             JObject srpResult = await ProtonRequest("POST", "https://api.protonmail.ch/auth", SRPAuthData);
             if (srpResult != null && !srpResult.ContainsKey("ServerProof"))
             {
-                MessageService.ShowInfo("failed SRP authentication");
+                MessageService.ShowInfo("failed SRP authentication: missing proof returned by server");
                 return null;
             }
             else if (srpResult == null)
@@ -279,11 +315,11 @@ namespace ProtonSecrets.StorageProvider {
                 nextChild.ParentKeys = subNodeKeys_pgp;
                 nextChild.ShareId = ShareId;
                 nextChild.Id = (string)childrenLinks["Links"][i]["LinkID"];
-                if((int)childrenLinks["Links"][i]["Size"] != 0)
+                if ((int)childrenLinks["Links"][i]["Size"] != 0)
                 {
                     nextChild.Size = Util.ConvertByteUnits((int)childrenLinks["Links"][i]["Size"]);
                 }
-                nextChild.LastModifiedDateTime =  DateTimeOffset.FromUnixTimeSeconds((long)childrenLinks["Links"][i]["ModifyTime"]);
+                nextChild.LastModifiedDateTime = DateTimeOffset.FromUnixTimeSeconds((long)childrenLinks["Links"][i]["ModifyTime"]);
                 if ((int)childrenLinks["Links"][i]["Type"] == 1)
                 {
                     nextChild.Type = StorageProviderItemType.Folder;
@@ -292,11 +328,11 @@ namespace ProtonSecrets.StorageProvider {
                 {
                     nextChild.Type = StorageProviderItemType.File;
                 }
-                children.Add(nextChild);    
+                children.Add(nextChild);
             }
             return children;
         }
-        
+
 
         public async Task<Stream> Download(string path)
         {
@@ -337,7 +373,7 @@ namespace ProtonSecrets.StorageProvider {
                 string decryptedLinkName = await nodeKeys_pgp.DecryptArmoredStringAsync(linkName);
                 if (decryptedLinkName == folder)
                 {
-                    
+
                     return new ProtonLink(nodeKeys_pgp, (string)folderChildrenLinksInfo["Links"][i]["LinkID"]);
                 }
             }
@@ -383,5 +419,410 @@ namespace ProtonSecrets.StorageProvider {
             return new MemoryStream(keepassDB_bytes);
         }
 
+        public void Sign(byte[] inputStream, Stream signedKeyOutStream, PgpSecretKey signingKey, char[] passphrase, bool armored)
+        {
+            //InitSignatureGenerator
+            PublicKeyAlgorithmTag tag = signingKey.PublicKey.Algorithm;
+            PgpSignatureGenerator pgpSignatureGenerator = new PgpSignatureGenerator(tag, HashAlgorithmTag.Sha256);
+            pgpSignatureGenerator.InitSign(PgpSignature.CanonicalTextDocument, signingKey.ExtractPrivateKey(passphrase)); //is sigType correct?
+            //signedKeyOutStream.BeginClearText(HashAlgorithmTag.Sha1);
+            foreach (string userId in signingKey.PublicKey.GetUserIds())
+            {
+                PgpSignatureSubpacketGenerator subPacketGenerator = new PgpSignatureSubpacketGenerator();
+                subPacketGenerator.AddSignerUserId(false, userId);
+                pgpSignatureGenerator.SetHashedSubpackets(subPacketGenerator.Generate());
+                // Just the first one!
+                break;
+            }
+            pgpSignatureGenerator.Update(inputStream, 0, inputStream.Length);
+            if (armored)
+            {
+                signedKeyOutStream = new ArmoredOutputStream(signedKeyOutStream);
+            }
+            BcpgOutputStream bcpgOutputStream = new BcpgOutputStream(signedKeyOutStream);
+            pgpSignatureGenerator.Generate().Encode(bcpgOutputStream);
+            if (armored)
+            {
+                signedKeyOutStream.Close();
+            }
+            //signedKeyOutStream.Seek(0, SeekOrigin.Begin);
+        }
+
+
+        public string ComputeFilenameHash(string filename)
+        {
+            //1. decrypt parent node hashKey
+            //2. create a signature of the filename using HMAC and hashKey
+            byte[] hashKey = Encoding.UTF8.GetBytes(decryptedParentNodeHashKey);
+            using (HMACSHA256 hmac = new HMACSHA256(hashKey))
+            {
+                byte[] hashValue = hmac.ComputeHash(new MemoryStream(Encoding.UTF8.GetBytes(filename)));
+                return Util.ByteArrayToHexString(hashValue);
+            }
+        }
+
+        //Generate a key suitable for both signing and decryption
+        public PgpSecretKeyRing GenerateKey(char[] passphrase)
+        {
+            IAsymmetricCipherKeyPairGenerator signing_kpg = new Ed25519KeyPairGenerator();
+            signing_kpg.Init(new Ed25519KeyGenerationParameters(new SecureRandom()));
+            AsymmetricCipherKeyPair newNodeSigningKey = signing_kpg.GenerateKeyPair();
+            string username = "Drive key";
+            PgpKeyRingGenerator krg = new PgpKeyRingGenerator(
+                PgpSignature.DefaultCertification,
+                new PgpKeyPair(PublicKeyAlgorithmTag.EdDsa, newNodeSigningKey, DateTime.UtcNow),
+                username,
+                SymmetricKeyAlgorithmTag.Aes128,
+                passphrase,
+                true,
+                null,
+                null,
+                new SecureRandom()
+                );
+            IAsymmetricCipherKeyPairGenerator decrypt_kpg = new X25519KeyPairGenerator();
+            decrypt_kpg.Init(new X25519KeyGenerationParameters(new SecureRandom()));
+            AsymmetricCipherKeyPair newNodeEncryptionKey = decrypt_kpg.GenerateKeyPair();
+            krg.AddSubKey(
+                new PgpKeyPair(PublicKeyAlgorithmTag.ECDH, newNodeEncryptionKey, DateTime.UtcNow),
+                HashAlgorithmTag.Sha256
+                );
+            PgpSecretKeyRing skr = krg.GenerateSecretKeyRing();
+            return skr;
+        }
+
+        public string GetArmoredKey(PgpSecretKeyRing skr)
+        {
+            MemoryStream sOut = new MemoryStream();
+            ArmoredOutputStream armoredSOut = new ArmoredOutputStream(sOut);
+            skr.Encode(armoredSOut);
+            armoredSOut.Close();
+            return Encoding.UTF8.GetString(sOut.ToArray());
+        }
+
+        public PgpSecretKey GetSigningKey(PgpSecretKeyRing skr, string passphrase)
+        {
+            foreach (PgpSecretKey secKey in skr.GetSecretKeys())
+            {
+                PgpPrivateKey privKey = secKey.ExtractPrivateKey(passphrase.ToCharArray());
+                if (privKey.PublicKeyPacket.Algorithm == PublicKeyAlgorithmTag.EdDsa)
+                {
+                    return secKey;
+                }
+            }
+            return null;
+        }
+
+        public PgpSecretKey GetEncryptionKey(PgpSecretKeyRing skr, string passphrase)
+        {
+            foreach (PgpSecretKey secKey in skr.GetSecretKeys())
+            {
+                PgpPrivateKey privKey = secKey.ExtractPrivateKey(passphrase.ToCharArray());
+                if (privKey.PublicKeyPacket.Algorithm == PublicKeyAlgorithmTag.ECDH)
+                {
+                    return secKey;
+                }
+            }
+            return null;
+        }
+
+        public async Task Encrypt(PgpEncryptedDataGenerator pk, Stream input, Stream output, PgpPublicKey pubKey, KeyParameter sessionKey, bool armored)
+        {
+            pk.AddMethod(pubKey);
+            if (armored)
+            {
+                output = new ArmoredOutputStream(output);
+            }
+            Stream outStream = pk.OpenWithKey(output, 0, new byte[1 << 16], sessionKey);
+            await Utilities.WriteStreamToLiteralDataAsync(outStream, PgpLiteralData.Binary, input, "");
+            outStream.Close();
+            if (armored)
+            {
+                output.Close();
+            }
+        }
+
+        public void EncryptAndSign(Stream input, Stream output, PgpPublicKey pubKey, PgpSecretKey signingKey, KeyParameter sessionKey, bool armored, char[] passphrase)
+        {
+            if (armored)
+            {
+                output = new ArmoredOutputStream(output);
+            }
+            PgpEncryptedDataGenerator encryptedDataGenerator = new PgpEncryptedDataGenerator(SymmetricKeyAlgorithmTag.Aes128, true, new SecureRandom());
+            encryptedDataGenerator.AddMethod(pubKey);
+            Stream outStream = encryptedDataGenerator.OpenWithKey(output, 0, new byte[0x10000], sessionKey);
+            PublicKeyAlgorithmTag tag = signingKey.PublicKey.Algorithm;
+            PgpSignatureGenerator pgpSignatureGenerator = new PgpSignatureGenerator(tag, HashAlgorithmTag.Sha256);
+            pgpSignatureGenerator.InitSign(PgpSignature.BinaryDocument, signingKey.ExtractPrivateKey(passphrase));
+            foreach (string userId in signingKey.PublicKey.GetUserIds())
+            {
+                PgpSignatureSubpacketGenerator subPacketGenerator = new PgpSignatureSubpacketGenerator();
+                subPacketGenerator.SetSignerUserId(false, userId);
+                pgpSignatureGenerator.SetHashedSubpackets(subPacketGenerator.Generate());
+                // Just the first one!
+                break;
+            }
+            pgpSignatureGenerator.GenerateOnePassVersion(false).Encode(outStream);
+            PgpLiteralDataGenerator pgpLiteralDataGenerator = new PgpLiteralDataGenerator();
+            Stream finalOutStream = pgpLiteralDataGenerator.Open(outStream, PgpLiteralData.Binary, "", input.Length, DateTime.UtcNow);
+            int length;
+            byte[] buf = new byte[0x10000];
+            while ((length = input.Read(buf, 0, buf.Length)) > 0)
+            {
+                finalOutStream.Write(buf, 0, length);
+                pgpSignatureGenerator.Update(buf, 0, length);
+            }
+
+            pgpSignatureGenerator.Generate().Encode(outStream);
+            outStream.Close();
+            if (armored)
+            {
+                output.Close();
+            }
+        }
+
+        public async Task<string> EncryptFileExtendedAttributes(int size, PGP keys)
+        {
+            int FILE_CHUNK_SIZE = 4 * 1024 * 1024;
+            List<int> blockSizes = new List<int>();
+            int listLength = (int)Math.Floor((double)size / (double)FILE_CHUNK_SIZE);
+            for (int i = 0; i < listLength; i++)
+            {
+                blockSizes.Add(FILE_CHUNK_SIZE);
+            }
+            blockSizes.Add(size % FILE_CHUNK_SIZE);
+            Dictionary<string, dynamic> xAttr = new Dictionary<string, dynamic>()
+            {
+                {
+                    "Common",
+                    new Dictionary<string, dynamic>[]
+                    {
+                        new Dictionary<string, dynamic>()
+                        {
+                            {"ModificationTime", DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture) },
+                            {"Size", size },
+                            {"BlockSizes", blockSizes.ToArray() }
+                        }
+                    }
+                }
+            };
+            string xAttrString = JsonConvert.SerializeObject(xAttr);
+            keys.CompressionAlgorithm = CompressionAlgorithmTag.ZLib;
+            keys.HashAlgorithmTag = HashAlgorithmTag.Sha256;
+            return await keys.EncryptArmoredStringAndSignAsync(xAttrString);
+        }
+        //to delete
+        public PgpPrivateKey GetParentNodePrivateKey()
+        {
+            FileInfo parentNodePrivateKey = new FileInfo("nodePrivateKey.asc");
+            using (Stream inputStream = PgpUtilities.GetDecoderStream(parentNodePrivateKey.OpenRead()))
+            {
+                PgpSecretKeyRingBundle bdl = new PgpSecretKeyRingBundle(inputStream);
+                IEnumerable<PgpSecretKeyRing> skr2 = bdl.GetKeyRings();
+                foreach (PgpSecretKeyRing aPart in skr2)
+                {
+                    IEnumerable<PgpSecretKey> secList = aPart.GetSecretKeys();
+                    foreach (PgpSecretKey secKey in secList)
+                    {
+                        PgpPrivateKey privKey = secKey.ExtractPrivateKey(parentNodePassphrase.ToCharArray());
+                        if (privKey.PublicKeyPacket.Algorithm == PublicKeyAlgorithmTag.ECDH)
+                        {
+                            return privKey;
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        //to delete
+        public PGP GetAddressKeys()
+        {
+            FileInfo fileAddressPrivateKey = new FileInfo("addressPrivateKey.asc");
+            EncryptionKeys addressPrivateKey = new EncryptionKeys(fileAddressPrivateKey, addressKeyPassphrase);
+            return new PGP(addressPrivateKey);
+        }
+        public async Task<Stream> Upload()
+        {
+            //Initially only try to upload in the root of our drive and only upload a single block file
+            // STEP 1: Generate keys for encryption
+            string filename = new DateTimeOffset(DateTime.UtcNow).ToUnixTimeSeconds().ToString();
+
+            // create passphrase
+            Random rand = new Random();
+            byte[] value = new byte[32];
+            rand.NextBytes(value);
+            string passphrase = Convert.ToBase64String(value);
+
+            // create new node key
+            PgpSecretKeyRing newNodeKeyRing = GenerateKey(passphrase.ToCharArray());
+
+            // get armored version of new node key
+            string newNodeArmoredKeyStr = GetArmoredKey(newNodeKeyRing);
+
+            //Isolated  signing/encryption keys for later use
+            PgpSecretKey nodeEncPrivKey = GetEncryptionKey(newNodeKeyRing, passphrase);
+            PgpSecretKey nodeSignPrivKey = GetSigningKey(newNodeKeyRing, passphrase);
+
+            //Get parent nodeKey and addressKey from file (should be obtained programmatically)
+            PgpPrivateKey parentNodePrivKey = GetParentNodePrivateKey();
+            PGP pgp_parentNodePublicKey = new PGP(new EncryptionKeys(new FileInfo("nodePublicKey.asc"), new FileInfo("addressPrivateKey.asc"), addressKeyPassphrase));
+            pgp_parentNodePublicKey.HashAlgorithmTag = HashAlgorithmTag.Sha256;
+            PGP pgp_addressPrivateKey = GetAddressKeys();
+            pgp_addressPrivateKey.HashAlgorithmTag = HashAlgorithmTag.Sha256;
+
+            //encrypt the passphrase (using parent nodeKey) and create a signature (using address key).
+            string encryptedNodePassphrase = await pgp_parentNodePublicKey.EncryptArmoredStringAsync(passphrase);
+            MemoryStream nodePassphraseSignatureStr = new MemoryStream();
+            Sign(Encoding.UTF8.GetBytes(passphrase), nodePassphraseSignatureStr, pgp_addressPrivateKey.EncryptionKeys.SecretKey, addressKeyPassphrase.ToCharArray(), true);
+            string armoredPassphraseSignature = Encoding.UTF8.GetString(nodePassphraseSignatureStr.ToArray());
+
+            //generate session key
+            SecureRandom random = new SecureRandom();
+            KeyParameter key = PgpUtilities.MakeRandomKey(SymmetricKeyAlgorithmTag.Aes128, random);
+
+            //sign the key using new node key
+            MemoryStream encodedSecretKey = new MemoryStream();
+            Sign(key.GetKey(), encodedSecretKey, nodeSignPrivKey, passphrase.ToCharArray(), true);
+            MemoryStream newNodeKeyStream = new MemoryStream(nodeSignPrivKey.GetEncoded());
+            newNodeKeyStream.Seek(0, SeekOrigin.Begin);
+            PGP pgp_newNodeKey = new PGP(new EncryptionKeys(newNodeKeyStream, passphrase));
+            pgp_newNodeKey.HashAlgorithmTag = HashAlgorithmTag.Sha256;
+
+            //try encrypting our helloworld file (we don't want the public key encrypted session key to be part of this)
+            PgpEncryptedDataGenerator pk = new PgpEncryptedDataGenerator(SymmetricKeyAlgorithmTag.Aes128, true, new SecureRandom());
+            FileStream inputFileStream = new FileStream("helloworld", FileMode.Open);
+            MemoryStream encryptedDataStream = new MemoryStream();
+            await Encrypt(pk, inputFileStream, encryptedDataStream, nodeEncPrivKey.PublicKey, key, false);
+            encryptedDataStream.Seek(0, SeekOrigin.Begin);
+            byte[] encDataByte = encryptedDataStream.ToArray(); //this contains the pke session key which we don't want
+            inputFileStream.Close();
+
+            //retrieve the encrypted session key packet
+            PgpEncryptedDataGenerator.PubMethod pubMeth = (PgpEncryptedDataGenerator.PubMethod)pk.methods[0];
+            PublicKeyEncSessionPacket pke = new PublicKeyEncSessionPacket(pubMeth.pubKey.KeyId, pubMeth.pubKey.Algorithm, pubMeth.data);
+            MemoryStream encKeyPackStream = new MemoryStream();
+            pke.Encode(BcpgOutputStream.Wrap(encKeyPackStream));
+            byte[] contentKeyPacket_byte = encKeyPackStream.ToArray();
+
+            //only keep the encrypted data part of the PGP message
+            int encDataLength = encDataByte.Length - contentKeyPacket_byte.Length;
+            encDataByte = Util.TakeSuffix(encDataByte, encDataLength);
+
+            //encrypt filename and compute hash of filename
+            //create clientUID
+            string filenameHash = ComputeFilenameHash(filename);
+            string encryptedFilename = await pgp_parentNodePublicKey.EncryptArmoredStringAndSignAsync(filename);
+            string clientUID = Util.GenerateProtonWebUID();
+
+            //Create signature of block data
+            byte[] helloWorldBytes = File.ReadAllBytes("helloworld");
+            MemoryStream blockDataSignatureStr = new MemoryStream();
+            Sign(helloWorldBytes, blockDataSignatureStr, pgp_addressPrivateKey.EncryptionKeys.SecretKey, addressKeyPassphrase.ToCharArray(), false);
+            //Encrypt signature of block data
+            MemoryStream encryptedBlockSignature = new MemoryStream();
+            EncryptAndSign(new MemoryStream(blockDataSignatureStr.ToArray()), encryptedBlockSignature, nodeEncPrivKey.PublicKey, nodeSignPrivKey, key, true, passphrase.ToCharArray());
+            encryptedBlockSignature.Seek(0, SeekOrigin.Begin);
+            string armoredEncryptedBlockSignature = Encoding.UTF8.GetString(encryptedBlockSignature.ToArray());
+
+            //compute hash over the encrypted block data
+            SHA256 mySHA256 = SHA256.Create();
+            byte[] hashedEncryptedBlockData = mySHA256.ComputeHash(encDataByte);
+            //sign the hash
+            MemoryStream signedHash = new MemoryStream();
+            Sign(hashedEncryptedBlockData, signedHash, pgp_addressPrivateKey.EncryptionKeys.SecretKey, addressKeyPassphrase.ToCharArray(), true);
+            string armoredSignedHash = Encoding.UTF8.GetString(signedHash.ToArray());
+
+            //create extended attributes and encrypt them
+            MemoryStream xAttrEncryptKeyStream = new MemoryStream(nodeEncPrivKey.PublicKey.GetEncoded());
+            xAttrEncryptKeyStream.Seek(0, SeekOrigin.Begin);
+            MemoryStream xAttrSignKeyStream = new MemoryStream(pgp_addressPrivateKey.EncryptionKeys.SecretKey.GetEncoded());
+            xAttrSignKeyStream.Seek(0, SeekOrigin.Begin);
+            string encryptedXAttr = await EncryptFileExtendedAttributes(13, new PGP(new EncryptionKeys(xAttrEncryptKeyStream, xAttrSignKeyStream, addressKeyPassphrase)));
+
+            //create the file in the backend
+            Dictionary<string, string> createFileBody = new Dictionary<string, string>()
+            {
+                {"ContentKeyPacket", Convert.ToBase64String(contentKeyPacket_byte)},
+                {"ContentKeyPacketSignature", Encoding.UTF8.GetString(encodedSecretKey.ToArray()) },
+                {"Hash", filenameHash },
+                {"MIMEType", "application/octet-stream" },
+                {"Name", encryptedFilename },
+                {"NodeKey", newNodeArmoredKeyStr },
+                {"NodePassphrase", encryptedNodePassphrase },
+                {"NodePassphraseSignature", armoredPassphraseSignature },
+                {"ParentLinkID", ParentLinkID},
+                {"SignatureAddress", myemail},
+                {"ClientUID", clientUID }
+            };
+            string createFileBodyJSON = JsonConvert.SerializeObject(createFileBody);
+            StringContent data = new StringContent(createFileBodyJSON, Encoding.UTF8, "application/json");
+            JObject createFileResponse = await ProtonRequest("POST", "https://api.protonmail.ch/drive/shares/" + shareID + "/files", data);
+            string createdFileID = (string)createFileResponse["File"]["ID"];
+            string createdFileRevisionID = (string)createFileResponse["File"]["RevisionID"];
+
+            //create the block in the backend
+            Dictionary<string, dynamic> createBlocksBody = new Dictionary<string, dynamic>()
+            {
+                { 
+                    "BlockList", 
+                    new Dictionary<string, dynamic>[]
+                    {
+                        new Dictionary<string, dynamic>()
+                        {
+                            {"Index", 1 },
+                            {"Hash", Convert.ToBase64String(hashedEncryptedBlockData) },
+                            {"EncSignature", armoredEncryptedBlockSignature  },
+                            {"Size", encDataByte.Length }
+                        }
+                    }
+                },
+                { "AddressID", addressID },
+                { "LinkID", createdFileID },
+                { "RevisionID", createdFileRevisionID },
+                { "ShareID", shareID }
+            };
+            string createBlockBodyJSON = JsonConvert.SerializeObject(createBlocksBody);
+            StringContent createBlockRequestData = new StringContent(createBlockBodyJSON, Encoding.UTF8, "application/json");
+            JObject createBlockResponse = await ProtonRequest("POST", "https://api.protonmail.ch/drive/blocks", createBlockRequestData);
+
+            //upload the block to the backend URL
+            string uploadURL = (string)createBlockResponse["UploadLinks"][0]["BareURL"];
+            string uploadToken = (string)createBlockResponse["UploadLinks"][0]["Token"];
+            var content = new MultipartFormDataContent();
+            content.Add(new ByteArrayContent(encDataByte), "Block", "blob");
+            var request = new HttpRequestMessage()
+            {
+                RequestUri = new Uri(uploadURL),
+                Method = HttpMethod.Post,
+            };
+            request.Content = content;
+            request.Headers.Add("pm-storage-token", uploadToken);
+            var clientX = new HttpClient();
+            HttpResponseMessage response = await clientX.SendAsync(request);
+
+            //update the file revision
+            Dictionary<string, dynamic> updateFileRevisionBody = new Dictionary<string, dynamic>()
+            {
+                { "State", 1 },
+                {
+                    "BlockList",
+                    new Dictionary<string, dynamic>[]
+                    {
+                        new Dictionary<string, dynamic>()
+                        {
+                            {"Index", 1 },
+                            {"Token", uploadToken }
+                        }
+                    }
+                },
+                { "ManifestSignature", armoredSignedHash },
+                { "SignatureAddress", myemail },
+                { "XAttr", encryptedXAttr }
+            };
+            string updateFileRevisionBodyJSON = JsonConvert.SerializeObject(updateFileRevisionBody);
+            StringContent updateFileRevisionRequestData = new StringContent(updateFileRevisionBodyJSON, Encoding.UTF8, "application/json");
+            JObject updateFileRevisionResponse = await ProtonRequest("PUT", "https://api.protonmail.ch/drive/shares/" + shareID + "/files/" + createdFileID + "/revisions/" + createdFileRevisionID, updateFileRevisionRequestData);
+            return null;
+        }
     }
 }

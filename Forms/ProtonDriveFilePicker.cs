@@ -32,14 +32,14 @@ namespace ProtonSecrets.Forms
         }
         private ConfigurationService m_configService;
         private bool m_isInit;
-        private StorageService m_storageService;
-        private ProtonDriveStorageProvider m_provider;
-        private Mode m_mode;
+        private StorageService _storageService;
+        private ProtonDriveStorageProvider _provider;
+        private Mode _mode;
         private IEnumerable<ProtonDriveItem> m_selectedItem;
         private readonly Stack<IEnumerable<ProtonDriveItem>> m_stack = new Stack<IEnumerable<ProtonDriveItem>>();
         private string folderPath;
         private string filename;
-        private KpResources m_kpResources;
+        private KpResources _kpResources;
 
         public string ResultUri
         {
@@ -49,25 +49,13 @@ namespace ProtonSecrets.Forms
             }
         }
 
-        public ProtonDriveFilePicker()
+        public ProtonDriveFilePicker(StorageService storageService, KpResources kpResources, Mode mode)
         {
-            InitializeComponent();
-        }
-
-        public async Task InitEx(ConfigurationService configService, StorageService storageService, KpResources kpResources, Mode mode)
-        {
-            if (configService == null) throw new ArgumentNullException("configService");
-            if (storageService == null) throw new ArgumentNullException("storageService");
-            if (kpResources == null) throw new ArgumentNullException("kpResources");
-            if (mode == Mode.Unknown) throw new ArgumentException("mode");
-
-            m_configService = configService;
-            m_storageService = storageService;
-            m_kpResources = kpResources;
-            m_provider = new ProtonDriveStorageProvider(configService.Account);
-            await m_provider.Init();
-            m_mode = mode;
+            _storageService = storageService;
+            _kpResources = kpResources;
+            _mode = mode;
             folderPath = "";
+            InitializeComponent();
         }
 
         private async void OnFormLoad(object sender, EventArgs e)
@@ -76,9 +64,9 @@ namespace ProtonSecrets.Forms
 
             m_isInit = true;
 
-            m_ilFiletypeIcons.Images.Add(IconFolder, m_kpResources.B16x16_Folder);
-            m_ilFiletypeIcons.Images.Add(IconDatabase, m_kpResources.B16x16_KeePass);
-            m_ilFiletypeIcons.Images.Add(IconDocument, m_kpResources.B16x16_Binary);
+            m_ilFiletypeIcons.Images.Add(IconFolder, _kpResources.B16x16_Folder);
+            m_ilFiletypeIcons.Images.Add(IconDatabase, _kpResources.B16x16_KeePass);
+            m_ilFiletypeIcons.Images.Add(IconDocument, _kpResources.B16x16_Binary);
 
             m_cbFilter.Items.Add("KeePass KDBX Files (*.kdbx)");
             m_cbFilter.Items.Add("All Files (*.*)");
@@ -96,7 +84,7 @@ namespace ProtonSecrets.Forms
 
             try
             {
-                m_selectedItem = await m_provider.GetRootItem();
+                m_selectedItem = await _storageService._storageProvider.GetRootItem();
                 //m_stack.Push(m_selectedItem);
             }
             catch (Exception ex)
@@ -113,7 +101,7 @@ namespace ProtonSecrets.Forms
             if (string.IsNullOrEmpty(m_txtFilename.Text)) return;
 
             ProtonDriveItem dbToOpen = m_selectedItem.SingleOrDefault(_ => _.Name == filename);
-            switch (m_mode)
+            switch (_mode)
             {
                 case Mode.Open:
                     if (dbToOpen == null)
@@ -133,7 +121,7 @@ namespace ProtonSecrets.Forms
                                 PushFolder(dbToOpen.Name);
                                 filename = "";
                                 m_txtFilename.Text = GetFilePath();
-                                m_selectedItem = await m_provider.GetChildrenForItem(dbToOpen);
+                                m_selectedItem = await _storageService._storageProvider.GetChildrenForItem(dbToOpen);
                                 await UpdateListView();
                                 break;
                         }
@@ -232,7 +220,7 @@ namespace ProtonSecrets.Forms
                         PushFolder(item.Name);
                         filename = "";
                         m_txtFilename.Text = GetFilePath();
-                        m_selectedItem = await m_provider.GetChildrenForItem(item);
+                        m_selectedItem = await _storageService._storageProvider.GetChildrenForItem(item);
                     }
                     await UpdateListView();
                     break;

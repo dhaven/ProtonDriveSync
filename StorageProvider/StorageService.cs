@@ -9,21 +9,11 @@ namespace ProtonSecrets.StorageProvider
 {
     public class StorageService : IWebRequestCreate
     {
-        private readonly ConfigurationService _configService;
+        public ProtonDriveStorageProvider _storageProvider { get; set; }
 
-        public StorageService(ConfigurationService configService)
+        public StorageService(ProtonDriveStorageProvider storageProvider)
         {
-            if (configService == null) throw new ArgumentNullException("configService");
-
-            _configService = configService;
-        }
-
-        public AccountConfiguration CreateAccount()
-        {
-            var protonDriveConfigurator = new ProtonDriveStorageConfigurator();
-            var account = protonDriveConfigurator.CreateAccount();
-
-            return account;
+            _storageProvider = storageProvider;
         }
 
         public System.Net.WebRequest Create(Uri uri)
@@ -33,7 +23,7 @@ namespace ProtonSecrets.StorageProvider
 
             var itemPath = GetPath(uri);
 
-            return new ProtonSecretsWebRequest(new ProtonDriveStorageProvider(_configService.Account), itemPath);
+            return new ProtonSecretsWebRequest(_storageProvider, itemPath);
         }
 
         public void RegisterPrefixes()

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Windows.Forms;
+using System.Threading.Tasks;
 using KeePass.Plugins;
 using KeePass.UI;
 using KeePassLib.Utility;
@@ -19,7 +20,6 @@ namespace ProtonSecrets
         private ConfigurationService _configService;
         private IPluginHost _host;
         private StorageService _storageService;
-        private UIService _uiService;
         private KpResources _kpResources;
 
         public override bool Initialize(IPluginHost pluginHost)
@@ -32,13 +32,6 @@ namespace ProtonSecrets
             //Load the configuration
             _configService = new ConfigurationService();
             _configService.Load();
-
-            //Initialize the Proton provider
-            _storageService = new StorageService(_configService);
-            _storageService.RegisterPrefixes();
-
-            // Initialize UIService
-            _uiService = new UIService(_configService, _storageService);
 
             // Initialize KeePass-Resource Service
             _kpResources = new KpResources(_host);
@@ -59,18 +52,36 @@ namespace ProtonSecrets
             return true; // Initialization successful
         }
 
-        private void OnShowSetting(object sender, EventArgs e)
+        private async void OnShowSetting(object sender, EventArgs e)
         {
-            _uiService.ShowSettingsDialog();
+            //Initialize the Proton provider if not already done
+            if(_storageService == null)
+            {
+                _storageService = new StorageService(new ProtonDriveStorageProvider(_configService));
+                _storageService.RegisterPrefixes();
+                if (_configService.IsLoaded)
+                {
+                    await _storageService._storageProvider.Init();
+                }
+            }
+            var dlg = new ProtonDriveAccountForm(_storageService._storageProvider._api);
+            var result = UIUtil.ShowDialogAndDestroy(dlg);
+
+            if (result == DialogResult.OK && dlg.Account != null)
+            {
+                _storageService._storageProvider._configService.Account = dlg.Account;
+                _storageService._storageProvider._configService.IsLoaded = true;
+                await _storageService._storageProvider.Init();
+            }
         }
 
         private async void OnOpenFromProtonDrive(object sender, EventArgs eventArgs)
         {
             // First usage: register new account
-            if (!HasAccounts()) return;
+            if (!(await HasAccounts())) return;
 
-            var form = new ProtonDriveFilePicker();
-            await form.InitEx(_configService, _storageService, _kpResources, ProtonDriveFilePicker.Mode.Open);
+
+            var form = new ProtonDriveFilePicker(_storageService, _kpResources, ProtonDriveFilePicker.Mode.Open);
             var result = UIUtil.ShowDialogAndDestroy(form);
 
             if (result != DialogResult.OK)
@@ -82,7 +93,7 @@ namespace ProtonSecrets
             _host.MainWindow.OpenDatabase(ci, null, false);
         }
 
-        private bool HasAccounts()
+        private async Task<bool> HasAccounts()
         {
             if (_configService.Account != null) return true;
 
@@ -92,7 +103,20 @@ namespace ProtonSecrets
 
             if (result == DialogResult.Yes)
             {
-                _uiService.ShowSettingsDialog();
+                if (_storageService == null)
+                {
+                    _storageService = new StorageService(new ProtonDriveStorageProvider(_configService));
+                    _storageService.RegisterPrefixes();
+                }
+                var dlg = new ProtonDriveAccountForm(_storageService._storageProvider._api);
+                var res = UIUtil.ShowDialogAndDestroy(dlg);
+
+                if (res == DialogResult.OK)
+                {
+                    _storageService._storageProvider._configService.Account = dlg.Account;
+                    _storageService._storageProvider._configService.IsLoaded = true;
+                    await _storageService._storageProvider.Init();
+                }
             }
 
             return false;
