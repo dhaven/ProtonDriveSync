@@ -38,7 +38,6 @@ namespace ProtonSecrets.Forms
         private IEnumerable<ProtonDriveItem> m_selectedItem;
         private readonly Stack<IEnumerable<ProtonDriveItem>> m_stack = new Stack<IEnumerable<ProtonDriveItem>>();
         private string folderPath;
-        private string filename;
         private KpResources _kpResources;
 
         public string ResultUri
@@ -100,17 +99,17 @@ namespace ProtonSecrets.Forms
             DialogResult = DialogResult.None;
             if (string.IsNullOrEmpty(m_txtFilename.Text)) return;
 
-            ProtonDriveItem dbToOpen = m_selectedItem.SingleOrDefault(_ => _.Name == filename);
+            ProtonDriveItem subItem = m_selectedItem.SingleOrDefault(_ => _.Name == m_txtFilename.Text);
             switch (_mode)
             {
                 case Mode.Open:
-                    if (dbToOpen == null)
+                    if (subItem == null)
                     {
                         return;
                     }
                     else
                     {
-                        switch (dbToOpen.Type)
+                        switch (subItem.Type)
                         {
                             case StorageProviderItemType.File:
                                 DialogResult = DialogResult.OK;
@@ -118,12 +117,28 @@ namespace ProtonSecrets.Forms
 
                             case StorageProviderItemType.Folder:
                                 m_stack.Push(m_selectedItem);
-                                PushFolder(dbToOpen.Name);
-                                filename = "";
-                                m_txtFilename.Text = GetFilePath();
-                                m_selectedItem = await _storageService._storageProvider.GetChildrenForItem(dbToOpen);
+                                PushFolder(subItem.Name);
+                                m_txtFilename.Text = "";
+                                m_selectedItem = await _storageService._storageProvider.GetChildrenForItem(subItem);
                                 await UpdateListView();
                                 break;
+                        }
+                    }
+                    break;
+                case Mode.Save:
+          
+                    if (subItem == null)
+                    {
+                        DialogResult = DialogResult.OK;
+                    }
+                    else
+                    {
+                        switch (subItem.Type)
+                        {
+                            case StorageProviderItemType.File:
+                                DialogResult = DialogResult.OK;
+                                break;
+            
                         }
                     }
 
@@ -193,8 +208,7 @@ namespace ProtonSecrets.Forms
             var item = e.Item.Tag as ProtonDriveItem;
 
             if (item != null)
-                filename = item.Name;
-                m_txtFilename.Text = GetFilePath();
+                m_txtFilename.Text = item.Name;
         }
 
         private async void OnItemDoubleClick(object sender, EventArgs e)
@@ -210,16 +224,14 @@ namespace ProtonSecrets.Forms
                     if (m_lvDetails.FocusedItem.Text == @"..")
                     {
                         PopFolder();
-                        filename = "";
-                        m_txtFilename.Text = GetFilePath();
+                        m_txtFilename.Text = "";
                         m_selectedItem = m_stack.Pop();
                     }
                     else
                     {
                         m_stack.Push(m_selectedItem);
                         PushFolder(item.Name);
-                        filename = "";
-                        m_txtFilename.Text = GetFilePath();
+                        m_txtFilename.Text = "";
                         m_selectedItem = await _storageService._storageProvider.GetChildrenForItem(item);
                     }
                     await UpdateListView();
@@ -238,7 +250,7 @@ namespace ProtonSecrets.Forms
 
         private string GetFilePath()
         {
-            return folderPath + filename;
+            return folderPath + m_txtFilename.Text;
         }
 
         private void PushFolder(string folder)

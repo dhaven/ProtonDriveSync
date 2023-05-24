@@ -56,6 +56,25 @@ namespace ProtonSecrets.WebRequest
             {
                 throw new InvalidOperationException(string.Format("ProtonPass: Move item {0} not supported.", _itemPath));
             }
+            else if (this.Method == WebRequestMethods.Http.Post)
+            {
+                var task = Task.Run(async () =>
+                {
+                    using (var stream = this._requestStream.GetReadableStream())
+                    {
+                        await _provider.Save(stream, _itemPath);
+                    }
+                });
+
+                task.Wait();
+                if (task.IsFaulted)
+                {
+                    throw new InvalidOperationException(string.Format("KeeAnywhere: Upload to folder {0} failed",
+                        _itemPath), task.Exception);
+                }
+
+                _response = new ProtonSecretsWebResponse();
+            }
             else // Get File
             {
                 var task = Task.Run(async () => await _provider.Load(_itemPath));

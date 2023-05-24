@@ -17,6 +17,7 @@ namespace ProtonSecrets
 
         //new variables
         private ToolStripMenuItem _tsOpenFromProtonDrive;
+        private ToolStripMenuItem _tsSaveToCloudDrive;
         private ConfigurationService _configService;
         private IPluginHost _host;
         private StorageService _storageService;
@@ -47,6 +48,16 @@ namespace ProtonSecrets
                     _tsOpenFromProtonDrive.Click += OnOpenFromProtonDrive;
                     _tsOpenFromProtonDrive.ShortcutKeys = Keys.Control | Keys.Alt | Keys.O;
                     openMenu.DropDownItems.Add(_tsOpenFromProtonDrive);
+                }
+                var saveMenu = fileMenu.DropDownItems["m_menuFileSaveAs"] as ToolStripMenuItem;
+                if (saveMenu != null)
+                {
+                    var index = saveMenu.DropDownItems.IndexOfKey("m_menuFileSaveAsSep0");
+
+                    _tsSaveToCloudDrive = new ToolStripMenuItem("Save to Proton Drive...");
+                    _tsSaveToCloudDrive.Click += OnSaveToProtonDrive;
+                    saveMenu.DropDownItems.Insert(index, _tsSaveToCloudDrive);
+
                 }
             }
             return true; // Initialization successful
@@ -91,6 +102,25 @@ namespace ProtonSecrets
             ci.CredSaveMode = IOCredSaveMode.SaveCred;
 
             _host.MainWindow.OpenDatabase(ci, null, false);
+        }
+
+        private async void OnSaveToProtonDrive(object sender, EventArgs eventArgs)
+        {
+            if (_host.Database == null) return;
+
+            // First usage: register new account
+            if (!(await HasAccounts())) return;
+
+            var form = new ProtonDriveFilePicker(_storageService, _kpResources, ProtonDriveFilePicker.Mode.Save);
+            var result = UIUtil.ShowDialogAndDestroy(form);
+
+            if (result != DialogResult.OK)
+                return;
+
+            var ci = IOConnectionInfo.FromPath("proton:///" + form.ResultUri);
+            ci.CredSaveMode = IOCredSaveMode.SaveCred;
+
+            _host.MainWindow.SaveDatabaseAs(_host.Database, ci, true, null, true);
         }
 
         private async Task<bool> HasAccounts()

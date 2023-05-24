@@ -36,6 +36,12 @@ namespace ProtonSecrets.StorageProvider
             return await this._api.Download(path);
         }
 
+        public async Task Save(Stream stream, string path)
+        {
+            if (this._api.addressKeys == null) await Init();
+            await this._api.Upload(stream, path);
+        }
+
         public async Task<IEnumerable<ProtonDriveItem>> GetRootItem()
         {
             return await _api.GetRootChildren();
@@ -46,12 +52,6 @@ namespace ProtonSecrets.StorageProvider
             if (item == null) throw new ArgumentNullException("item");
 
             return await _api.GetChildren(item.ParentKeys, item.Id, item.ShareId);
-        }
-
-        public async Task<Stream> Save(string path)
-        {
-            if (this._api.addressKeys == null) await Init();
-            return await this._api.Upload();
         }
     }
 }
