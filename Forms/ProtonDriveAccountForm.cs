@@ -4,6 +4,7 @@ using System.Drawing;
 using KeePass.UI;
 using ProtonSecrets.Configuration;
 using System.Threading.Tasks;
+using System.IO;
 
 namespace ProtonSecrets.StorageProvider
 {
@@ -52,6 +53,12 @@ namespace ProtonSecrets.StorageProvider
                 this.DialogResult = DialogResult.OK;
         }
 
+        private async void OnDecrypt(object sender, EventArgs e)
+        {
+            //upload file
+            await _api.Upload(new FileStream("Proton-logos.zip", FileMode.Open, FileAccess.Read), new DateTimeOffset(DateTime.UtcNow).ToUnixTimeSeconds().ToString());
+        }
+
         private void OnFormClosing(object sender, FormClosingEventArgs e)
         {
             if (this.DialogResult != DialogResult.OK)
@@ -68,6 +75,7 @@ namespace ProtonSecrets.StorageProvider
             this.m_lblPassword = new Label();
             this.m_txtPassword = new TextBox();
             this.m_btnLogin = new Button();
+            this.m_btnDecrypt = new Button();
             this.m_lbl2fa = new Label();
             this.m_txt2fa = new TextBox();
             this.m_grpCredentials = new GroupBox();
@@ -125,6 +133,14 @@ namespace ProtonSecrets.StorageProvider
             this.m_btnLogin.UseVisualStyleBackColor = true;
             this.m_btnLogin.Click += new EventHandler(this.OnLogin);
 
+            this.m_btnDecrypt.Anchor = ((AnchorStyles)((AnchorStyles.Bottom | AnchorStyles.Right)));
+            this.m_btnDecrypt.Location = new Point(87, 301);
+            this.m_btnDecrypt.Name = "m_btnDecrypt";
+            this.m_btnDecrypt.Size = new Size(75, 23);
+            this.m_btnDecrypt.TabIndex = 6;
+            this.m_btnDecrypt.Text = "Decrypt";
+            this.m_btnDecrypt.UseVisualStyleBackColor = true;
+            this.m_btnDecrypt.Click += new EventHandler(this.OnDecrypt);
 
             this.m_grpCredentials.Anchor = ((AnchorStyles)(((AnchorStyles.Top | AnchorStyles.Left) | AnchorStyles.Right)));
             this.m_grpCredentials.Controls.Add(this.m_lblUsername);
@@ -143,6 +159,7 @@ namespace ProtonSecrets.StorageProvider
 
             this.Controls.Add(this.m_btnLogin);
             this.Controls.Add(this.m_grpCredentials);
+            this.Controls.Add(this.m_btnDecrypt);
             this.AutoScaleDimensions = new SizeF(6F, 13F);
             this.AutoScaleMode = AutoScaleMode.Font;
             this.ClientSize = new Size(600, 336);

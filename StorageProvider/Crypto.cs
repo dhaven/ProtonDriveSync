@@ -23,7 +23,7 @@ namespace ProtonSecrets.StorageProvider
             //InitSignatureGenerator
             PublicKeyAlgorithmTag tag = signingKey.PublicKey.Algorithm;
             PgpSignatureGenerator pgpSignatureGenerator = new PgpSignatureGenerator(tag, HashAlgorithmTag.Sha256);
-            pgpSignatureGenerator.InitSign(PgpSignature.CanonicalTextDocument, signingKey.ExtractPrivateKey(passphrase)); //is sigType correct?
+            pgpSignatureGenerator.InitSign(PgpSignature.BinaryDocument, signingKey.ExtractPrivateKey(passphrase));
             //signedKeyOutStream.BeginClearText(HashAlgorithmTag.Sha1);
             foreach (string userId in signingKey.PublicKey.GetUserIds())
             {
@@ -130,7 +130,15 @@ namespace ProtonSecrets.StorageProvider
             {
                 output = new ArmoredOutputStream(output);
             }
-            Stream outStream = pk.OpenWithKey(output, 0, new byte[1 << 16], sessionKey);
+            Stream outStream = null;
+            if(sessionKey != null)
+            {
+                outStream = pk.OpenWithKey(output, 0, new byte[1 << 16], sessionKey);
+            }
+            else
+            {
+                outStream = pk.Open(output, 0);
+            }
             await Utilities.WriteStreamToLiteralDataAsync(outStream, PgpLiteralData.Binary, input, "");
             outStream.Close();
             if (armored)
@@ -147,7 +155,15 @@ namespace ProtonSecrets.StorageProvider
             }
             PgpEncryptedDataGenerator encryptedDataGenerator = new PgpEncryptedDataGenerator(SymmetricKeyAlgorithmTag.Aes128, true, new SecureRandom());
             encryptedDataGenerator.AddMethod(pubKey);
-            Stream outStream = encryptedDataGenerator.OpenWithKey(output, 0, new byte[0x10000], sessionKey);
+            Stream outStream = null;
+            if(sessionKey != null)
+            {
+                outStream = encryptedDataGenerator.OpenWithKey(output, 0, new byte[0x10000], sessionKey);
+            }
+            else
+            {
+                outStream = encryptedDataGenerator.Open(output, 0);
+            }
             PublicKeyAlgorithmTag tag = signingKey.PublicKey.Algorithm;
             PgpSignatureGenerator pgpSignatureGenerator = new PgpSignatureGenerator(tag, HashAlgorithmTag.Sha256);
             pgpSignatureGenerator.InitSign(PgpSignature.BinaryDocument, signingKey.ExtractPrivateKey(passphrase));

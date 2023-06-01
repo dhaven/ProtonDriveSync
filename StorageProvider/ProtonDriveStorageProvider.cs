@@ -32,18 +32,19 @@ namespace ProtonSecrets.StorageProvider
         // Responsible for downloading a file at the given path from ProtonDrive
         public async Task<Stream> Load(string path)
         {
-            if (this._api.addressKeys == null) await Init();
+            if (this._api.addressInfo == null) await Init();
             return await this._api.Download(path);
         }
 
         public async Task Save(Stream stream, string path)
         {
-            if (this._api.addressKeys == null) await Init();
+            if (this._api.addressInfo == null) await Init();
             await this._api.Upload(stream, path);
         }
 
         public async Task<IEnumerable<ProtonDriveItem>> GetRootItem()
         {
+            if (this._api.addressInfo == null) await Init();
             return await _api.GetRootChildren();
         }
 
@@ -51,6 +52,7 @@ namespace ProtonSecrets.StorageProvider
         {
             if (item == null) throw new ArgumentNullException("item");
 
+            if (this._api.addressInfo == null) await Init();
             return await _api.GetChildren(item.ParentKeys, item.Id, item.ShareId);
         }
     }

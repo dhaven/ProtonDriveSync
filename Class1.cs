@@ -34,6 +34,10 @@ namespace ProtonSecrets
             _configService = new ConfigurationService();
             _configService.Load();
 
+            //Initialize the Proton provider
+            _storageService = new StorageService(new ProtonDriveStorageProvider(_configService));
+            _storageService.RegisterPrefixes();
+
             // Initialize KeePass-Resource Service
             _kpResources = new KpResources(_host);
 
@@ -65,16 +69,6 @@ namespace ProtonSecrets
 
         private async void OnShowSetting(object sender, EventArgs e)
         {
-            //Initialize the Proton provider if not already done
-            if(_storageService == null)
-            {
-                _storageService = new StorageService(new ProtonDriveStorageProvider(_configService));
-                _storageService.RegisterPrefixes();
-                if (_configService.IsLoaded)
-                {
-                    await _storageService._storageProvider.Init();
-                }
-            }
             var dlg = new ProtonDriveAccountForm(_storageService._storageProvider._api);
             var result = UIUtil.ShowDialogAndDestroy(dlg);
 
@@ -90,7 +84,6 @@ namespace ProtonSecrets
         {
             // First usage: register new account
             if (!(await HasAccounts())) return;
-
 
             var form = new ProtonDriveFilePicker(_storageService, _kpResources, ProtonDriveFilePicker.Mode.Open);
             var result = UIUtil.ShowDialogAndDestroy(form);

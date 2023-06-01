@@ -26,6 +26,9 @@ using Org.BouncyCastle.Bcpg;
 using System.Security.Cryptography;
 using static Org.BouncyCastle.Bcpg.OpenPgp.PgpEncryptedDataGenerator;
 using System.Drawing;
+using System.Security.Policy;
+using Org.BouncyCastle.Asn1.X509;
+using static System.Windows.Forms.LinkLabel;
 
 namespace ProtonSecrets.StorageProvider {
 
@@ -33,16 +36,12 @@ namespace ProtonSecrets.StorageProvider {
     {
 
         private HttpClient client;
-        private string shareId;
-        public PGP addressKeys;
 
-        private string addressKeyPassphrase = "7f7**";
-        private string parentNodePassphrase = "zGl**";
-        private string ParentLinkID = "0vh**";
-        private string shareID = "AQ**";
-        private string addressID = "Yu**";
-        private string decryptedParentNodeHashKey = "C8z**";
-        private string myemail = "da**";
+        internal ProtonAddress addressInfo;
+        internal ProtonShare shareInfo;
+
+        private string decryptedParentNodeHashKey = "C8z***";
+        private string myemail = "dav***";
 
         internal class ProtonLink
         {
@@ -52,6 +51,82 @@ namespace ProtonSecrets.StorageProvider {
             {
                 ParentKeys = parentKey;
                 LinkID = linkID;
+            }
+        }
+
+        internal class ProtonLink2
+        {
+            public string id;
+            public string parentID;
+            public PGP privateKey;
+            public string passphrase;
+
+            public ProtonLink2(PGP privateKey, string passphrase, string id, string parentID)
+            {
+                this.privateKey = privateKey;
+                this.passphrase = passphrase;
+                this.id = id;
+                this.parentID = parentID;
+            }
+
+            public async static Task<ProtonLink2> Initialize(string shareId, string linkId, PGP parentPrivateKey, HttpClient client)
+            {
+                JObject linkInfo = null;
+                try
+                {
+                    HttpResponseMessage response = await client.GetAsync("https://api.protonmail.ch/drive/shares/" + shareId + "/links/" + linkId);
+                    //response.EnsureSuccessStatusCode();
+                    string responseBody = await response.Content.ReadAsStringAsync();
+                    JObject bodyData = JObject.Parse(responseBody);
+                    linkInfo = bodyData;
+                }
+                catch (HttpRequestException exception)
+                {
+                    Console.WriteLine("\nException Caught!");
+                    Console.WriteLine("Message :{0} ", exception.Message);
+                    MessageService.ShowInfo(exception.Message);
+                }
+                string nodePrivateKey = (string)linkInfo["Link"]["NodeKey"];
+                string nodePassphrase = (string)linkInfo["Link"]["NodePassphrase"];
+                string parentLinkId = (string)linkInfo["Link"]["ParentLinkID"];
+                //Decrypt nodePassphrase
+                string decryptedNodePassphrase = await parentPrivateKey.DecryptArmoredStringAsync(nodePassphrase);
+                EncryptionKeys nodeKeys = new EncryptionKeys(nodePrivateKey, decryptedNodePassphrase);
+                return new ProtonLink2(new PGP(nodeKeys), decryptedNodePassphrase, linkId, parentLinkId);
+            }
+
+            //Get an instance of a link at any level of the hierarchy given it's name
+            public async static Task<ProtonLink2> GetLink(string name, ProtonLink2 parent, string shareId, HttpClient client)
+            {
+                //Get children of root folder
+                JObject folderChildrenLinksInfo = null;
+                try
+                {
+                    HttpResponseMessage response = await client.GetAsync("https://api.protonmail.ch/drive/shares/" + shareId + "/folders/" + parent.id + "/children");
+                    //response.EnsureSuccessStatusCode();
+                    string responseBody = await response.Content.ReadAsStringAsync();
+                    JObject bodyData = JObject.Parse(responseBody);
+                    folderChildrenLinksInfo = bodyData;
+                }
+                catch (HttpRequestException exception)
+                {
+                    Console.WriteLine("\nException Caught!");
+                    Console.WriteLine("Message :{0} ", exception.Message);
+                    MessageService.ShowInfo(exception.Message);
+                }
+                // loop through links until we find the folder
+                for (int i = 0; i < folderChildrenLinksInfo["Links"].Count(); i++)
+                {
+                    //if type is folder then go one level down
+                    string linkName = (string)folderChildrenLinksInfo["Links"][i]["Name"];
+                    //Decrypt filename
+                    string decryptedLinkName = await parent.privateKey.DecryptArmoredStringAsync(linkName);
+                    if (decryptedLinkName == name)
+                    {
+                        return await ProtonLink2.Initialize(shareId, (string)folderChildrenLinksInfo["Links"][i]["LinkID"], parent.privateKey, client);
+                    }
+                }
+                return null;
             }
         }
 
@@ -82,43 +157,15 @@ namespace ProtonSecrets.StorageProvider {
                     userPrivateKey = (string)userKeys[i]["PrivateKey"];
                 }
             }
-            //Get address info
-            JObject addressInfo = await ProtonRequest("GET", "https://api.protonmail.ch/addresses");
-            JArray addresses = (JArray)addressInfo["Addresses"];
-            JArray keys = null;
-            for (int i = 0; i < addresses.Count(); i++)
-            {
-                if ((string)addresses[i]["Email"] == email)
-                {
-                    keys = (JArray)addresses[i]["Keys"];
-                }
-            }
-            string addressPrivateKey = "";
-            string addressToken = "";
-            for (int i = 0; i < keys.Count(); i++)
-            {
-                if ((int)keys[i]["Primary"] == 1)
-                {
-                    addressPrivateKey = (string)keys[i]["PrivateKey"];
-                    addressToken = (string)keys[i]["Token"];
-                }
-            }
             EncryptionKeys encryptionKeys = new EncryptionKeys(userPrivateKey, keyPassword);
             PGP userPrivateKey_pgp = new PGP(encryptionKeys);
-            //Decrypt addressToken
-            string decryptedToken = await userPrivateKey_pgp.DecryptArmoredStringAsync(addressToken);
-
-            EncryptionKeys adddressKeys_enc = new EncryptionKeys(addressPrivateKey, decryptedToken);
-            this.addressKeys = new PGP(adddressKeys_enc);
-
-            JObject sharesInfo = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares");
-            JArray shares = (JArray)sharesInfo["Shares"];
-            for (int i = 0; i < shares.Count(); i++)
+            if (this.addressInfo == null)
             {
-                if (shares[i]["CreationTime"].ToString() == "")
-                {
-                    this.shareId = (string)shares[i]["ShareID"];
-                }
+                this.addressInfo = await ProtonAddress.Initialize(email, userPrivateKey_pgp, this.client);
+            }
+            if(this.shareInfo == null)
+            {
+                this.shareInfo = await ProtonShare.Initialize(this.addressInfo, this.client);
             }
         }
         private async Task<JObject> ProtonRequest(string method, string url, StringContent data = null)
@@ -166,7 +213,7 @@ namespace ProtonSecrets.StorageProvider {
                     HttpResponseMessage response = await this.client.GetAsync(url);
                     //response.EnsureSuccessStatusCode();
                     string responseBody = await response.Content.ReadAsStringAsync();
-                    JObject bodyData = JObject.Parse(responseBody); ;
+                    JObject bodyData = JObject.Parse(responseBody);
                     return bodyData;
                 }
                 catch (HttpRequestException exception)
@@ -280,27 +327,20 @@ namespace ProtonSecrets.StorageProvider {
 
         public async Task<IEnumerable<ProtonDriveItem>> GetRootChildren()
         {
-            JObject shareInfo = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareId);
-            string sharePrivateKey = (string)shareInfo["Key"];
-            string sharePassphrase = (string)shareInfo["Passphrase"];
-            //Decrypt sharePassphrase
-            string decryptedPassphrase = await this.addressKeys.DecryptArmoredStringAsync(sharePassphrase);
-            EncryptionKeys shareKeys = new EncryptionKeys(sharePrivateKey, decryptedPassphrase);
-            PGP shareKeys_pgp = new PGP(shareKeys);
-            JObject linkInfo = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareId + "/links/" + (string)shareInfo["LinkID"]);
+            JObject linkInfo = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/links/" + this.shareInfo.linkID);
             string rootNodePrivateKey = (string)linkInfo["Link"]["NodeKey"];
             string rootNodePassphrase = (string)linkInfo["Link"]["NodePassphrase"];
             //Decrypt root nodePassphrase
-            string decryptedRootNodePassphrase = await shareKeys_pgp.DecryptArmoredStringAsync(rootNodePassphrase);
+            string decryptedRootNodePassphrase = await this.shareInfo.privateKey.DecryptArmoredStringAsync(rootNodePassphrase);
             EncryptionKeys nodeKeys = new EncryptionKeys(rootNodePrivateKey, decryptedRootNodePassphrase);
             PGP nodeKeys_pgp = new PGP(nodeKeys);
-            return await GetChildren(nodeKeys_pgp, (string)shareInfo["LinkID"], this.shareId);
+            return await GetChildren(nodeKeys_pgp, this.shareInfo.linkID, this.shareInfo.id);
         }
         //returns a list of ProtonDriveItems that are the children of Link Id
-        public async Task<IEnumerable<ProtonDriveItem>> GetChildren(PGP parentKeys, string Id, string ShareId)
+        public async Task<IEnumerable<ProtonDriveItem>> GetChildren(PGP parentKeys, string linkId, string shareId)
         {
             List<ProtonDriveItem> children = new List<ProtonDriveItem>();
-            JObject childrenLinks = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + ShareId + "/folders/" + Id + "/children");
+            JObject childrenLinks = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + shareId + "/folders/" + linkId + "/children");
             for (int i = 0; i < childrenLinks["Links"].Count(); i++)
             {
                 string nodePrivateKey = (string)childrenLinks["Links"][i]["NodeKey"];
@@ -315,7 +355,7 @@ namespace ProtonSecrets.StorageProvider {
                 ProtonDriveItem nextChild = new ProtonDriveItem();
                 nextChild.Name = decryptedLinkName;
                 nextChild.ParentKeys = subNodeKeys_pgp;
-                nextChild.ShareId = ShareId;
+                nextChild.ShareId = shareId;
                 nextChild.Id = (string)childrenLinks["Links"][i]["LinkID"];
                 if ((int)childrenLinks["Links"][i]["Size"] != 0)
                 {
@@ -339,25 +379,18 @@ namespace ProtonSecrets.StorageProvider {
         public async Task<Stream> Download(string path)
         {
             string[] folders = path.Split(new string[] { "/" }, StringSplitOptions.RemoveEmptyEntries);
-            JObject shareInfo = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareId);
-            string sharePrivateKey = (string)shareInfo["Key"];
-            string sharePassphrase = (string)shareInfo["Passphrase"];
-            //Decrypt sharePassphrase
-            string decryptedPassphrase = await this.addressKeys.DecryptArmoredStringAsync(sharePassphrase);
-            EncryptionKeys shareKeys = new EncryptionKeys(sharePrivateKey, decryptedPassphrase);
-            PGP shareKeys_pgp = new PGP(shareKeys);
-            ProtonLink current = new ProtonLink(shareKeys_pgp, (string)shareInfo["LinkID"]);
+            ProtonLink current = new ProtonLink(this.shareInfo.privateKey, this.shareInfo.linkID);
             //recursively traverse the folders until we reach our file
             for (int i = 0; i < folders.Length; i++)
             {
                 current = await GetFolderKeys(current, folders[i]);
             }
-            return await DownloadBlockData(current.LinkID, current.ParentKeys, this.shareId);
+            return await DownloadBlockData(current.LinkID, current.ParentKeys, this.shareInfo.id);
         }
 
         private async Task<ProtonLink> GetFolderKeys(ProtonLink current, string folder)
         {
-            JObject linkInfo = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareId + "/links/" + current.LinkID);
+            JObject linkInfo = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/links/" + current.LinkID);
             string nodePrivateKey = (string)linkInfo["Link"]["NodeKey"];
             string nodePassphrase = (string)linkInfo["Link"]["NodePassphrase"];
             //Decrypt nodePassphrase
@@ -365,7 +398,7 @@ namespace ProtonSecrets.StorageProvider {
             EncryptionKeys nodeKeys = new EncryptionKeys(nodePrivateKey, decryptedNodePassphrase);
             PGP nodeKeys_pgp = new PGP(nodeKeys);
             //Get children of root folder
-            JObject folderChildrenLinksInfo = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareId + "/folders/" + current.LinkID + "/children");
+            JObject folderChildrenLinksInfo = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/folders/" + current.LinkID + "/children");
             // loop through links until we find the folder
             for (int i = 0; i < folderChildrenLinksInfo["Links"].Count(); i++)
             {
@@ -385,7 +418,7 @@ namespace ProtonSecrets.StorageProvider {
         //Downloads the block data for a given link
         public async Task<Stream> DownloadBlockData(string linkID, PGP nodeKeys, string shareID)
         {
-            JObject linkData = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareId + "/links/" + linkID);
+            JObject linkData = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/links/" + linkID);
             //decrypt the link private key
             string linkPrivateKey = (string)linkData["Link"]["NodeKey"];
             string linkPassphrase = (string)linkData["Link"]["NodePassphrase"];
@@ -421,38 +454,7 @@ namespace ProtonSecrets.StorageProvider {
             return new MemoryStream(keepassDB_bytes);
         }
 
-
-        //to delete
-        public PgpPrivateKey GetParentNodePrivateKey()
-        {
-            FileInfo parentNodePrivateKey = new FileInfo("nodePrivateKey.asc");
-            using (Stream inputStream = PgpUtilities.GetDecoderStream(parentNodePrivateKey.OpenRead()))
-            {
-                PgpSecretKeyRingBundle bdl = new PgpSecretKeyRingBundle(inputStream);
-                IEnumerable<PgpSecretKeyRing> skr2 = bdl.GetKeyRings();
-                foreach (PgpSecretKeyRing aPart in skr2)
-                {
-                    IEnumerable<PgpSecretKey> secList = aPart.GetSecretKeys();
-                    foreach (PgpSecretKey secKey in secList)
-                    {
-                        PgpPrivateKey privKey = secKey.ExtractPrivateKey(parentNodePassphrase.ToCharArray());
-                        if (privKey.PublicKeyPacket.Algorithm == PublicKeyAlgorithmTag.ECDH)
-                        {
-                            return privKey;
-                        }
-                    }
-                }
-            }
-            return null;
-        }
-
-        //to delete
-        public PGP GetAddressKeys()
-        {
-            FileInfo fileAddressPrivateKey = new FileInfo("addressPrivateKey.asc");
-            EncryptionKeys addressPrivateKey = new EncryptionKeys(fileAddressPrivateKey, addressKeyPassphrase);
-            return new PGP(addressPrivateKey);
-        }
+        
         public async Task Upload(Stream database, string path)
         {
             //Initially only try to upload in the root of our drive and only upload a single block file
@@ -460,6 +462,24 @@ namespace ProtonSecrets.StorageProvider {
             //string filename = new DateTimeOffset(DateTime.UtcNow).ToUnixTimeSeconds().ToString();
             string filename = path;
 
+            //split the filename into folders
+            //recursively search until we find the nodeKeys of the folder containing our file
+            string[] folders = filename.Split(new string[] { "/" }, StringSplitOptions.RemoveEmptyEntries);
+            Dictionary<string,ProtonLink2> links = new Dictionary<string,ProtonLink2>();
+            string parentLinkId = "";
+            //initialize the root link
+            ProtonLink2 rootLink = await ProtonLink2.Initialize(this.shareInfo.id, this.shareInfo.linkID, this.shareInfo.privateKey, this.client);
+            links.Add(rootLink.id, rootLink);
+            //initialize all folder links part of the path
+            ProtonLink2 lastParentLink = links[rootLink.id];
+            for (int i = 0; i < folders.Length - 1; i++)
+            {
+                ProtonLink2 nextLink =  await ProtonLink2.GetLink(folders[i], lastParentLink, this.shareInfo.id, this.client);
+                links.Add(nextLink.id, nextLink);
+                lastParentLink = nextLink;
+            }
+            parentLinkId = lastParentLink.id;
+            
             // create passphrase
             Random rand = new Random();
             byte[] value = new byte[32];
@@ -479,16 +499,26 @@ namespace ProtonSecrets.StorageProvider {
             PgpSecretKey nodeSignPrivKey = Crypto.GetSigningKey(newNodeKeyRing, passphrase);
 
             //Get parent nodeKey and addressKey from file (should be obtained programmatically)
-            PgpPrivateKey parentNodePrivKey = GetParentNodePrivateKey();
-            PGP pgp_parentNodePublicKey = new PGP(new EncryptionKeys(new FileInfo("nodePublicKey.asc"), new FileInfo("addressPrivateKey.asc"), addressKeyPassphrase));
-            pgp_parentNodePublicKey.HashAlgorithmTag = HashAlgorithmTag.Sha256;
-            PGP pgp_addressPrivateKey = GetAddressKeys();
-            pgp_addressPrivateKey.HashAlgorithmTag = HashAlgorithmTag.Sha256;
+            //get parent public key for filename encryption
+            PGP parentPrivateKey = links[parentLinkId].privateKey;
+            PgpSecretKey parentNodeEncPrivKey = null;
+            foreach(PgpSecretKeyRing parentKey in parentPrivateKey.EncryptionKeys.SecretKeys.GetKeyRings())
+            {
+                PgpSecretKey encKey = Crypto.GetEncryptionKey(parentKey, links[parentLinkId].passphrase);
+                if( encKey != null )
+                {
+                    parentNodeEncPrivKey = encKey;
+                }
+            }
 
             //encrypt the passphrase (using parent nodeKey) and create a signature (using address key).
-            string encryptedNodePassphrase = await pgp_parentNodePublicKey.EncryptArmoredStringAsync(passphrase);
+            MemoryStream encryptedNodePassphraseStream = new MemoryStream();
+            PgpEncryptedDataGenerator pk1 = new PgpEncryptedDataGenerator(SymmetricKeyAlgorithmTag.Aes128, true, new SecureRandom());
+            await Crypto.Encrypt(pk1, passphrase.GetStream(), encryptedNodePassphraseStream, parentNodeEncPrivKey.PublicKey, null, true);
+            encryptedNodePassphraseStream.Seek(0, SeekOrigin.Begin);
+            string encryptedNodePassphrase = Encoding.UTF8.GetString(encryptedNodePassphraseStream.ToArray());
             MemoryStream nodePassphraseSignatureStr = new MemoryStream();
-            Crypto.Sign(Encoding.UTF8.GetBytes(passphrase), nodePassphraseSignatureStr, pgp_addressPrivateKey.EncryptionKeys.SecretKey, addressKeyPassphrase.ToCharArray(), true);
+            Crypto.Sign(Encoding.UTF8.GetBytes(passphrase), nodePassphraseSignatureStr, addressInfo.privateKey.EncryptionKeys.SecretKey, addressInfo.passphrase.ToCharArray(), true);
             string armoredPassphraseSignature = Encoding.UTF8.GetString(nodePassphraseSignatureStr.ToArray());
 
             //generate session key
@@ -506,7 +536,9 @@ namespace ProtonSecrets.StorageProvider {
             //encrypt filename and compute hash of filename
             //create clientUID
             string filenameHash = Crypto.ComputeFilenameHash(filename, decryptedParentNodeHashKey);
-            string encryptedFilename = await pgp_parentNodePublicKey.EncryptArmoredStringAndSignAsync(filename);
+            MemoryStream encryptedFilenameStream = new MemoryStream();
+            Crypto.EncryptAndSign(filename.GetStream(), encryptedFilenameStream, parentNodeEncPrivKey.PublicKey, addressInfo.privateKey.EncryptionKeys.SecretKey, null, true, addressInfo.passphrase.ToCharArray());
+            string encryptedFilename = Encoding.UTF8.GetString(encryptedFilenameStream.ToArray());
             string clientUID = Util.GenerateProtonWebUID();
 
             //try encrypting our file (we don't want the public key encrypted session key to be part of this)
@@ -562,13 +594,13 @@ namespace ProtonSecrets.StorageProvider {
                             {"NodeKey", newNodeArmoredKeyStr },
                             {"NodePassphrase", encryptedNodePassphrase },
                             {"NodePassphraseSignature", armoredPassphraseSignature },
-                            {"ParentLinkID", ParentLinkID},
+                            {"ParentLinkID", parentLinkId},
                             {"SignatureAddress", myemail},
                             {"ClientUID", clientUID }
                         };
                     string createFileBodyJSON = JsonConvert.SerializeObject(createFileBody);
                     StringContent data = new StringContent(createFileBodyJSON, Encoding.UTF8, "application/json");
-                    JObject createFileResponse = await ProtonRequest("POST", "https://api.protonmail.ch/drive/shares/" + shareID + "/files", data);
+                    JObject createFileResponse = await ProtonRequest("POST", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/files", data);
                     createdFileID = (string)createFileResponse["File"]["ID"];
                     createdFileRevisionID = (string)createFileResponse["File"]["RevisionID"];
                 }
@@ -579,7 +611,7 @@ namespace ProtonSecrets.StorageProvider {
                 //Create signature of block data
                 //byte[] helloWorldBytes = File.ReadAllBytes("helloworld");
                 MemoryStream blockDataSignatureStr = new MemoryStream();
-                Crypto.Sign(blockBytes, blockDataSignatureStr, pgp_addressPrivateKey.EncryptionKeys.SecretKey, addressKeyPassphrase.ToCharArray(), false);
+                Crypto.Sign(blockBytes, blockDataSignatureStr, addressInfo.privateKey.EncryptionKeys.SecretKey, addressInfo.passphrase.ToCharArray(), false);
                 //Encrypt signature of block data
                 MemoryStream encryptedBlockSignature = new MemoryStream();
                 Crypto.EncryptAndSign(new MemoryStream(blockDataSignatureStr.ToArray()), encryptedBlockSignature, nodeEncPrivKey.PublicKey, nodeSignPrivKey, key, true, passphrase.ToCharArray());
@@ -617,10 +649,10 @@ namespace ProtonSecrets.StorageProvider {
                                 }
                             }
                         },
-                        { "AddressID", addressID },
+                        { "AddressID", addressInfo.id },
                         { "LinkID", createdFileID },
                         { "RevisionID", createdFileRevisionID },
-                        { "ShareID", shareID }
+                        { "ShareID", this.shareInfo.id }
                     };
                 string createBlockBodyJSON = JsonConvert.SerializeObject(createBlocksBody);
                 StringContent createBlockRequestData = new StringContent(createBlockBodyJSON, Encoding.UTF8, "application/json");
@@ -664,15 +696,15 @@ namespace ProtonSecrets.StorageProvider {
             //File.WriteAllText("generatedCryptoMaterial/createdFileRevisionID", createdFileRevisionID);
             //sign the hash
             MemoryStream signedHash = new MemoryStream();
-            Crypto.Sign(fileHash, signedHash, pgp_addressPrivateKey.EncryptionKeys.SecretKey, addressKeyPassphrase.ToCharArray(), true);
+            Crypto.Sign(fileHash, signedHash, addressInfo.privateKey.EncryptionKeys.SecretKey, addressInfo.passphrase.ToCharArray(), true);
             string armoredSignedHash = Encoding.UTF8.GetString(signedHash.ToArray());
 
             //create extended attributes and encrypt them
             MemoryStream xAttrEncryptKeyStream = new MemoryStream(nodeEncPrivKey.PublicKey.GetEncoded());
             xAttrEncryptKeyStream.Seek(0, SeekOrigin.Begin);
-            MemoryStream xAttrSignKeyStream = new MemoryStream(pgp_addressPrivateKey.EncryptionKeys.SecretKey.GetEncoded());
+            MemoryStream xAttrSignKeyStream = new MemoryStream(addressInfo.privateKey.EncryptionKeys.SecretKey.GetEncoded());
             xAttrSignKeyStream.Seek(0, SeekOrigin.Begin);
-            string encryptedXAttr = await Crypto.EncryptFileExtendedAttributes(totalFileLength, new PGP(new EncryptionKeys(xAttrEncryptKeyStream, xAttrSignKeyStream, addressKeyPassphrase)));
+            string encryptedXAttr = await Crypto.EncryptFileExtendedAttributes(totalFileLength, new PGP(new EncryptionKeys(xAttrEncryptKeyStream, xAttrSignKeyStream, addressInfo.passphrase)));
 
             //update the file revision
             Dictionary<string, dynamic> updateFileRevisionBody = new Dictionary<string, dynamic>()
@@ -685,7 +717,7 @@ namespace ProtonSecrets.StorageProvider {
                     };
             string updateFileRevisionBodyJSON = JsonConvert.SerializeObject(updateFileRevisionBody);
             StringContent updateFileRevisionRequestData = new StringContent(updateFileRevisionBodyJSON, Encoding.UTF8, "application/json");
-            JObject updateFileRevisionResponse = await ProtonRequest("PUT", "https://api.protonmail.ch/drive/shares/" + shareID + "/files/" + createdFileID + "/revisions/" + createdFileRevisionID, updateFileRevisionRequestData);
+            JObject updateFileRevisionResponse = await ProtonRequest("PUT", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/files/" + createdFileID + "/revisions/" + createdFileRevisionID, updateFileRevisionRequestData);
             //inputFileStream.Close();
         }
     }
