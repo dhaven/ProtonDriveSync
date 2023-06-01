@@ -24,6 +24,7 @@ using Org.BouncyCastle.Security;
 using Org.BouncyCastle.Bcpg.OpenPgp;
 using Org.BouncyCastle.Bcpg;
 using System.Security.Cryptography;
+using BCrypt.Net;
 
 namespace ProtonSecrets.StorageProvider {
 
@@ -532,7 +533,15 @@ namespace ProtonSecrets.StorageProvider {
             {
                 output = new ArmoredOutputStream(output);
             }
-            Stream outStream = pk.OpenWithKey(output, 0, new byte[1 << 16], sessionKey);
+            Stream outStream = null;
+            if (sessionKey != null)
+            {
+                outStream = pk.OpenWithKey(output, 0, new byte[1 << 16], sessionKey);
+            }
+            else
+            {
+                outStream = pk.Open(output, new byte[1 << 16]);
+            }
             await Utilities.WriteStreamToLiteralDataAsync(outStream, PgpLiteralData.Binary, input, "");
             outStream.Close();
             if (armored)
@@ -549,7 +558,15 @@ namespace ProtonSecrets.StorageProvider {
             }
             PgpEncryptedDataGenerator encryptedDataGenerator = new PgpEncryptedDataGenerator(SymmetricKeyAlgorithmTag.Aes128, true, new SecureRandom());
             encryptedDataGenerator.AddMethod(pubKey);
-            Stream outStream = encryptedDataGenerator.OpenWithKey(output, 0, new byte[0x10000], sessionKey);
+            Stream outStream = null;
+            if (sessionKey != null)
+            {
+                outStream = encryptedDataGenerator.OpenWithKey(output, 0, new byte[0x10000], sessionKey);
+            }
+            else
+            {
+                outStream = encryptedDataGenerator.Open(output, new byte[0x10000]);
+            }
             PublicKeyAlgorithmTag tag = signingKey.PublicKey.Algorithm;
             PgpSignatureGenerator pgpSignatureGenerator = new PgpSignatureGenerator(tag, HashAlgorithmTag.Sha256);
             pgpSignatureGenerator.InitSign(PgpSignature.BinaryDocument, signingKey.ExtractPrivateKey(passphrase));
@@ -611,7 +628,7 @@ namespace ProtonSecrets.StorageProvider {
             return await keys.EncryptArmoredStringAndSignAsync(xAttrString);
         }
         //to delete
-        public PgpPrivateKey GetParentNodePrivateKey()
+        public PgpSecretKey GetParentNodePrivateKey()
         {
             FileInfo parentNodePrivateKey = new FileInfo("nodePrivateKey.asc");
             using (Stream inputStream = PgpUtilities.GetDecoderStream(parentNodePrivateKey.OpenRead()))
@@ -626,7 +643,7 @@ namespace ProtonSecrets.StorageProvider {
                         PgpPrivateKey privKey = secKey.ExtractPrivateKey(parentNodePassphrase.ToCharArray());
                         if (privKey.PublicKeyPacket.Algorithm == PublicKeyAlgorithmTag.ECDH)
                         {
-                            return privKey;
+                            return secKey;
                         }
                     }
                 }
@@ -666,14 +683,18 @@ namespace ProtonSecrets.StorageProvider {
             PgpSecretKey nodeSignPrivKey = GetSigningKey(newNodeKeyRing, passphrase);
 
             //Get parent nodeKey and addressKey from file (should be obtained programmatically)
-            PgpPrivateKey parentNodePrivKey = GetParentNodePrivateKey();
-            PGP pgp_parentNodePublicKey = new PGP(new EncryptionKeys(new FileInfo("nodePublicKey.asc"), new FileInfo("addressPrivateKey.asc"), addressKeyPassphrase));
-            pgp_parentNodePublicKey.HashAlgorithmTag = HashAlgorithmTag.Sha256;
+            PgpSecretKey parentNodePrivKey = GetParentNodePrivateKey();
             PGP pgp_addressPrivateKey = GetAddressKeys();
             pgp_addressPrivateKey.HashAlgorithmTag = HashAlgorithmTag.Sha256;
+            PgpPublicKey parentNodePubKey = parentNodePrivKey.PublicKey;
 
             //encrypt the passphrase (using parent nodeKey) and create a signature (using address key).
-            string encryptedNodePassphrase = await pgp_parentNodePublicKey.EncryptArmoredStringAsync(passphrase);
+            //string encryptedNodePassphrase = await pgp_parentNodePublicKey.EncryptArmoredStringAsync(passphrase);
+            MemoryStream encryptedNodePassphraseStream = new MemoryStream();
+            PgpEncryptedDataGenerator pk1 = new PgpEncryptedDataGenerator(SymmetricKeyAlgorithmTag.Aes128, true, new SecureRandom());
+            await Encrypt(pk1, new MemoryStream(Encoding.UTF8.GetBytes(passphrase)), encryptedNodePassphraseStream, parentNodePubKey, null, true);
+            encryptedNodePassphraseStream.Seek(0, SeekOrigin.Begin);
+            string encryptedNodePassphrase = Encoding.UTF8.GetString(encryptedNodePassphraseStream.ToArray());
             MemoryStream nodePassphraseSignatureStr = new MemoryStream();
             Sign(Encoding.UTF8.GetBytes(passphrase), nodePassphraseSignatureStr, pgp_addressPrivateKey.EncryptionKeys.SecretKey, addressKeyPassphrase.ToCharArray(), true);
             string armoredPassphraseSignature = Encoding.UTF8.GetString(nodePassphraseSignatureStr.ToArray());
@@ -720,7 +741,10 @@ namespace ProtonSecrets.StorageProvider {
             //encrypt filename and compute hash of filename
             //create clientUID
             string filenameHash = ComputeFilenameHash(filename);
-            string encryptedFilename = await pgp_parentNodePublicKey.EncryptArmoredStringAndSignAsync(filename);
+            //string encryptedFilename = await pgp_parentNodePublicKey.EncryptArmoredStringAndSignAsync(filename);
+            MemoryStream encryptedFilenameStream = new MemoryStream();
+            EncryptAndSign(new MemoryStream(Encoding.UTF8.GetBytes(filename)), encryptedFilenameStream, parentNodePubKey, pgp_addressPrivateKey.EncryptionKeys.SecretKey, null, true, addressKeyPassphrase.ToCharArray());
+            string encryptedFilename = Encoding.UTF8.GetString(encryptedFilenameStream.ToArray());
             string clientUID = Util.GenerateProtonWebUID();
             File.WriteAllText("generatedCryptoMaterial/filenameHash", filenameHash);
             File.WriteAllText("generatedCryptoMaterial/encryptedFilename", encryptedFilename);
