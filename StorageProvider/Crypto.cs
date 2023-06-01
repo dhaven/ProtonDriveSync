@@ -137,7 +137,7 @@ namespace ProtonSecrets.StorageProvider
             }
             else
             {
-                outStream = pk.Open(output, 0);
+                outStream = pk.Open(output, new byte[1 << 16]);
             }
             await Utilities.WriteStreamToLiteralDataAsync(outStream, PgpLiteralData.Binary, input, "");
             outStream.Close();
@@ -162,7 +162,7 @@ namespace ProtonSecrets.StorageProvider
             }
             else
             {
-                outStream = encryptedDataGenerator.Open(output, 0);
+                outStream = encryptedDataGenerator.Open(output, new byte[0x10000]);
             }
             PublicKeyAlgorithmTag tag = signingKey.PublicKey.Algorithm;
             PgpSignatureGenerator pgpSignatureGenerator = new PgpSignatureGenerator(tag, HashAlgorithmTag.Sha256);
