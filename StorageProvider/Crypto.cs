@@ -13,6 +13,9 @@ using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Security;
 using PgpCore;
 using Newtonsoft.Json;
+using KeePassLib;
+using System.Xml.Linq;
+using System.Security.Cryptography.X509Certificates;
 
 namespace ProtonSecrets.StorageProvider
 {
@@ -147,23 +150,75 @@ namespace ProtonSecrets.StorageProvider
             }
         }
 
-        public static void EncryptAndSign(Stream input, Stream output, PgpPublicKey pubKey, PgpSecretKey signingKey, KeyParameter sessionKey, bool armored, char[] passphrase)
+        public static async Task<string> EncryptArmoredStringAndSignAsync(string input, PgpPublicKey publicKey, KeyParameter sessionKey, PgpSecretKey signingKey, char[] passphrase, bool compressed = false)
         {
-            if (armored)
+            using (Stream inputStream = await input.GetStreamAsync())
+            using (Stream outputStream = new MemoryStream())
             {
-                output = new ArmoredOutputStream(output);
+                await EncryptStreamAndSignAsync(inputStream, outputStream, publicKey, sessionKey, signingKey, passphrase, true, compressed);
+                outputStream.Seek(0, SeekOrigin.Begin);
+                return await outputStream.GetStringAsync();
             }
-            PgpEncryptedDataGenerator encryptedDataGenerator = new PgpEncryptedDataGenerator(SymmetricKeyAlgorithmTag.Aes128, true, new SecureRandom());
-            encryptedDataGenerator.AddMethod(pubKey);
-            Stream outStream = null;
-            if(sessionKey != null)
+        }
+
+        public static async Task EncryptStreamAndSignAsync(Stream inputStream, Stream outputStream, PgpPublicKey publicKey, KeyParameter sessionKey, PgpSecretKey signingKey, char[] passphrase, bool armor = true, bool compressed = false)
+        {
+            if (armor)
             {
-                outStream = encryptedDataGenerator.OpenWithKey(output, 0, new byte[0x10000], sessionKey);
+                using (var armoredOutputStream = new ArmoredOutputStream(outputStream))
+                {
+                    await OutputEncryptedAsync(inputStream, armoredOutputStream, publicKey, sessionKey, signingKey, passphrase, compressed);
+                }
+            }
+            else
+                await OutputEncryptedAsync(inputStream, outputStream, publicKey, sessionKey, signingKey, passphrase, compressed);
+        }
+
+        public static async Task OutputEncryptedAsync(Stream inputStream, Stream outputStream, PgpPublicKey publicKey, KeyParameter sessionKey, PgpSecretKey signingKey, char[] passphrase, bool compressed = false)
+        {
+            using (Stream encryptedOut = ChainEncryptedOut(outputStream, publicKey, sessionKey))
+            {
+                using (Stream compressedOut = ChainCompressedOut(encryptedOut, compressed))
+                {
+                    PgpSignatureGenerator signatureGenerator = InitSignatureGenerator(compressedOut, signingKey, passphrase);
+                    using (Stream literalOut = ChainLiteralStreamOut(compressedOut, inputStream))
+                    {
+                        await WriteOutputAndSignAsync(compressedOut, literalOut, inputStream, signatureGenerator);
+                    }
+                }
+            }
+        }
+
+        public static Stream ChainEncryptedOut(Stream outputStream, PgpPublicKey publicKey, KeyParameter sessionKey)
+        {
+            var encryptedDataGenerator = new PgpEncryptedDataGenerator(SymmetricKeyAlgorithmTag.Aes128, true, new SecureRandom());
+
+            encryptedDataGenerator.AddMethod(publicKey);
+
+            if (sessionKey != null)
+            {
+                return encryptedDataGenerator.OpenWithKey(outputStream, 0, new byte[0x10000], sessionKey);
             }
             else
             {
-                outStream = encryptedDataGenerator.Open(output, new byte[0x10000]);
+                return encryptedDataGenerator.Open(outputStream, new byte[0x10000]);
             }
+        }
+
+        public static Stream ChainCompressedOut(Stream encryptedOut, bool compressed = false)
+        {
+            if (compressed)
+            {
+                PgpCompressedDataGenerator compressedDataGenerator =
+                    new PgpCompressedDataGenerator(CompressionAlgorithmTag.Zip);
+                return compressedDataGenerator.Open(encryptedOut);
+            }
+
+            return encryptedOut;
+        }
+
+        public static PgpSignatureGenerator InitSignatureGenerator(Stream compressedOut, PgpSecretKey signingKey, char[] passphrase)
+        {
             PublicKeyAlgorithmTag tag = signingKey.PublicKey.Algorithm;
             PgpSignatureGenerator pgpSignatureGenerator = new PgpSignatureGenerator(tag, HashAlgorithmTag.Sha256);
             pgpSignatureGenerator.InitSign(PgpSignature.BinaryDocument, signingKey.ExtractPrivateKey(passphrase));
@@ -175,26 +230,30 @@ namespace ProtonSecrets.StorageProvider
                 // Just the first one!
                 break;
             }
-            pgpSignatureGenerator.GenerateOnePassVersion(false).Encode(outStream);
-            PgpLiteralDataGenerator pgpLiteralDataGenerator = new PgpLiteralDataGenerator();
-            Stream finalOutStream = pgpLiteralDataGenerator.Open(outStream, PgpLiteralData.Binary, "", input.Length, DateTime.UtcNow);
-            int length;
-            byte[] buf = new byte[0x10000];
-            while ((length = input.Read(buf, 0, buf.Length)) > 0)
-            {
-                finalOutStream.Write(buf, 0, length);
-                pgpSignatureGenerator.Update(buf, 0, length);
-            }
-
-            pgpSignatureGenerator.Generate().Encode(outStream);
-            outStream.Close();
-            if (armored)
-            {
-                output.Close();
-            }
+            pgpSignatureGenerator.GenerateOnePassVersion(false).Encode(compressedOut);
+            return pgpSignatureGenerator;
         }
 
-        public static async Task<string> EncryptFileExtendedAttributes(int size, PGP keys)
+        public static Stream ChainLiteralStreamOut(Stream compressedOut, Stream inputStream)
+        {
+            PgpLiteralDataGenerator pgpLiteralDataGenerator = new PgpLiteralDataGenerator();
+            return pgpLiteralDataGenerator.Open(compressedOut, PgpLiteralData.Binary, "", inputStream.Length, DateTime.UtcNow);
+        }
+
+        private static async Task WriteOutputAndSignAsync(Stream compressedOut, Stream literalOut, Stream inputStream, PgpSignatureGenerator signatureGenerator)
+        {
+            int length;
+            byte[] buf = new byte[0x10000];
+            while ((length = await inputStream.ReadAsync(buf, 0, buf.Length)) > 0)
+            {
+                await literalOut.WriteAsync(buf, 0, length);
+                signatureGenerator.Update(buf, 0, length);
+            }
+
+            signatureGenerator.Generate().Encode(compressedOut);
+        }
+
+        public static async Task<string> EncryptFileExtendedAttributes(int size, PgpPublicKey pubKey, PgpSecretKey signingKey, char[] passphrase)
         {
             int FILE_CHUNK_SIZE = 4 * 1024 * 1024;
             List<int> blockSizes = new List<int>();
@@ -220,9 +279,8 @@ namespace ProtonSecrets.StorageProvider
                 }
             };
             string xAttrString = JsonConvert.SerializeObject(xAttr);
-            keys.CompressionAlgorithm = CompressionAlgorithmTag.ZLib;
-            keys.HashAlgorithmTag = HashAlgorithmTag.Sha256;
-            return await keys.EncryptArmoredStringAndSignAsync(xAttrString);
+            MemoryStream encryptedXAttr = new MemoryStream();
+            return await EncryptArmoredStringAndSignAsync(xAttrString, pubKey, null, signingKey, passphrase, true);
         }
     }
 }
