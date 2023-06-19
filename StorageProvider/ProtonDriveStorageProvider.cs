@@ -6,6 +6,7 @@ using ProtonSecrets.Configuration;
 using KeePassLib.Keys;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.ListView;
 using System.Security.Principal;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.Header;
 
 namespace ProtonSecrets.StorageProvider
 {

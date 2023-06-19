@@ -130,13 +130,19 @@ namespace ProtonSecrets.Forms
                     if (subItem == null)
                     {
                         DialogResult = DialogResult.OK;
+                        //the file does not exist in this folder so it is safe to create a new file
                     }
                     else
                     {
                         switch (subItem.Type)
                         {
                             case StorageProviderItemType.File:
-                                DialogResult = DialogResult.OK;
+                                //ask the user if he wants to overwrite the file
+                                var result = MessageService.Ask("The file \"" + subItem.Name + "\" already exists in this folder. Do you want to overwrite it?", "Overwrite existing file?", MessageBoxButtons.YesNo);
+                                if (result == DialogResult.Yes)
+                                {
+                                    DialogResult = DialogResult.OK;
+                                }
                                 break;
             
                         }

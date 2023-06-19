@@ -11,6 +11,7 @@ using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using static System.Windows.Forms.LinkLabel;
+using Newtonsoft.Json;
 
 namespace ProtonSecrets.StorageProvider
 {
@@ -140,6 +141,36 @@ namespace ProtonSecrets.StorageProvider
                 }
             }
             return null;
+        }
+
+        //return true if there is a conflict between filenames. False otherwise
+        public static async Task<bool> CheckConflictingFilenames(ProtonLink parent, string filenameHash, string shareId, HttpClient client)
+        {
+            List<string> hashes = new List<string> { };
+            hashes.Add(filenameHash);
+            Dictionary<string, string[]> requestBody = new Dictionary<string, string[]>()
+                        {
+                            {"Hashes",hashes.ToArray()}
+                        };
+            string requestBodyJSON = JsonConvert.SerializeObject(requestBody);
+            StringContent data = new StringContent(requestBodyJSON, Encoding.UTF8, "application/json");
+            try
+            {
+                HttpResponseMessage response = await client.PostAsync("https://api.protonmail.ch/drive/shares/" + shareId + "/links/" + parent.id + "/checkAvailableHashes", data);
+                string responseBody = await response.Content.ReadAsStringAsync();
+                JObject bodyData = JObject.Parse(responseBody);
+                if (bodyData["AvailableHashes"].Count() == 0)
+                {
+                    return true;
+                }
+            }
+            catch (HttpRequestException exception)
+            {
+                Console.WriteLine("\nException Caught!");
+                Console.WriteLine("Message :{0} ", exception.Message);
+                MessageService.ShowInfo(exception.Message);
+            }
+            return false;
         }
 
         public PgpSecretKey GetSigningKey()
