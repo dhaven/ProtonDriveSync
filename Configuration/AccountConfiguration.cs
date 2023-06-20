@@ -10,12 +10,15 @@ namespace ProtonSecrets.Configuration
 
         public string AccessToken { get; set; }
 
-        public AccountConfiguration(string KeyPassword, string Email, string UID, string AccessToken)
+        public bool Is2faEnabled { get; set; }
+
+        public AccountConfiguration(string KeyPassword, string Email, string UID, string AccessToken, bool Is2faEnabled)
         {
             this.KeyPassword = KeyPassword;
             this.Email = Email;
             this.UID = UID;
             this.AccessToken = AccessToken;
+            this.Is2faEnabled = Is2faEnabled;
         }
     }
 }

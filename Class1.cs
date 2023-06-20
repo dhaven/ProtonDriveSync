@@ -69,14 +69,22 @@ namespace ProtonSecrets
 
         private async void OnShowSetting(object sender, EventArgs e)
         {
-            var dlg = new ProtonDriveAccountForm(_storageService._storageProvider._api);
-            var result = UIUtil.ShowDialogAndDestroy(dlg);
-
-            if (result == DialogResult.OK && dlg.Account != null)
+            if(_storageService._storageProvider._configService.Account != null)
             {
-                _storageService._storageProvider._configService.Account = dlg.Account;
-                _storageService._storageProvider._configService.IsLoaded = true;
-                await _storageService._storageProvider.Init();
+                var dlg = new SignedInAccount(_storageService._storageProvider._configService.Account.Email, _storageService._storageProvider);
+                var result = UIUtil.ShowDialogAndDestroy(dlg);
+            }
+            else
+            {
+                var dlg = new ProtonDriveAccountForm(_storageService._storageProvider);
+                var result = UIUtil.ShowDialogAndDestroy(dlg);
+
+                if (result == DialogResult.OK && dlg.Account != null)
+                {
+                    _storageService._storageProvider._configService.Account = dlg.Account;
+                    _storageService._storageProvider._configService.IsLoaded = true;
+                    await _storageService._storageProvider.Init();
+                }
             }
         }
 
@@ -131,7 +139,7 @@ namespace ProtonSecrets
                     _storageService = new StorageService(new ProtonDriveStorageProvider(_configService));
                     _storageService.RegisterPrefixes();
                 }
-                var dlg = new ProtonDriveAccountForm(_storageService._storageProvider._api);
+                var dlg = new ProtonDriveAccountForm(_storageService._storageProvider);
                 var res = UIUtil.ShowDialogAndDestroy(dlg);
 
                 if (res == DialogResult.OK)

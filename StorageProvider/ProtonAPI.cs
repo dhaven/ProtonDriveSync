@@ -25,6 +25,8 @@ using System.Security.Cryptography;
 using System.Windows.Forms.VisualStyles;
 using BCrypt.Net;
 using KeePassLib;
+using System.Runtime.CompilerServices;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.TextBox;
 
 namespace ProtonSecrets.StorageProvider {
 
@@ -58,7 +60,7 @@ namespace ProtonSecrets.StorageProvider {
         {
             this.client = new HttpClient();
             this.client.DefaultRequestHeaders.Add("x-pm-appversion", "Other");
-            this.client.DefaultRequestHeaders.Add("User-Agent", "None");
+            this.client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0");
         }
         public void AddAuthHeaders(string UID, string accessToken)
         {
@@ -150,7 +152,7 @@ namespace ProtonSecrets.StorageProvider {
             }
         }
 
-        private async Task<string> ComputeKeyPassword(string password)
+        public async Task<string> ComputeKeyPassword(string password)
         {
             //Get user info
             JObject userInfo = await ProtonRequest("GET", "https://api.protonmail.ch/users");
@@ -182,7 +184,7 @@ namespace ProtonSecrets.StorageProvider {
         }
 
         //logs the user in and returns the corresponding account configuration
-        public async Task<AccountConfiguration> Login(string username, string password, string twofa)
+        public async Task<AccountConfiguration> Authenticate(string username, string password)
         {
             Dictionary<string, string> authPayload = new Dictionary<string, string>();
             authPayload["Username"] = username;
@@ -228,25 +230,48 @@ namespace ProtonSecrets.StorageProvider {
             BigInteger actualServerProofBig = Util.ByteToBigInteger(actualServerProof);
             if (Util.ByteToBigInteger(srpRes.expectedServerProof) == actualServerProofBig)
             {
-                MessageService.ShowInfo("Authenticated");
+                //add headers for later requests
+                this.client.DefaultRequestHeaders.Remove("x-pm-uid");
+                this.client.DefaultRequestHeaders.Add("x-pm-uid", (string)srpResult["UID"]);
+                this.client.DefaultRequestHeaders.Remove("Authorization");
+                this.client.DefaultRequestHeaders.Add("Authorization", "Bearer " + (string)srpResult["AccessToken"]);
+                if (((string)srpResult["Scope"]).Split(' ').Contains("twofactor"))
+                {
+                    return new AccountConfiguration("", username, (string)srpResult["UID"], (string)srpResult["AccessToken"], true);
+                }
+                return new AccountConfiguration("", username, (string)srpResult["UID"], (string)srpResult["AccessToken"], false);
             }
-            //add headers for later requests
-            this.client.DefaultRequestHeaders.Remove("x-pm-uid");
-            this.client.DefaultRequestHeaders.Add("x-pm-uid", (string)srpResult["UID"]);
-            this.client.DefaultRequestHeaders.Remove("Authorization");
-            this.client.DefaultRequestHeaders.Add("Authorization", "Bearer " + (string)srpResult["AccessToken"]);
-            //validate 2fa if enabled
-            if (((string)srpResult["Scope"]).Split(' ').Contains("twofactor"))
+            else
             {
-                Dictionary<string, string> twoFAAuth = new Dictionary<string, string>();
-                twoFAAuth["TwoFactorCode"] = twofa;
-                string twoFAAuthJson = JsonConvert.SerializeObject(twoFAAuth, Formatting.Indented);
-                StringContent twoFAAuthData = new StringContent(twoFAAuthJson, Encoding.UTF8, "application/json");
-                JObject twoFAAuthInfo = await ProtonRequest("POST", "https://api.protonmail.ch/auth/2fa", twoFAAuthData);
-                //sessionData["Scope"] = (string)twoFAAuthInfo["Scope"];
+                MessageService.ShowInfo("Unable to login");
+                return null;
             }
-            string KeyPassword = await ComputeKeyPassword(password);
-            return new AccountConfiguration(KeyPassword, username, (string)srpResult["UID"], (string)srpResult["AccessToken"]);
+        }
+
+        public async Task Validate2fa(string twofa)
+        {
+            Dictionary<string, string> twoFAAuth = new Dictionary<string, string>();
+            twoFAAuth["TwoFactorCode"] = twofa;
+            string twoFAAuthJson = JsonConvert.SerializeObject(twoFAAuth, Formatting.Indented);
+            StringContent twoFAAuthData = new StringContent(twoFAAuthJson, Encoding.UTF8, "application/json");
+            JObject twoFAAuthInfo = await ProtonRequest("POST", "https://api.protonmail.ch/auth/2fa", twoFAAuthData);
+            //check for errors with the 2fa
+            MessageService.ShowInfo("2fa validated");
+        }
+
+        public async Task Logout()
+        {
+            try
+            {
+                HttpResponseMessage response = await client.DeleteAsync("https://api.protonmail.ch/auth");
+                string responseBody = await response.Content.ReadAsStringAsync();
+            }
+            catch (HttpRequestException exception)
+            {
+                Console.WriteLine("\nException Caught!");
+                Console.WriteLine("Message :{0} ", exception.Message);
+                MessageService.ShowInfo(exception.Message);
+            }
         }
 
         public async Task<IEnumerable<ProtonDriveItem>> GetRootChildren()

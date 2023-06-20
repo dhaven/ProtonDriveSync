@@ -30,23 +30,32 @@ namespace ProtonSecrets.Configuration
             if (string.IsNullOrEmpty(configString)) 
                 return;
             JObject bodyData = JObject.Parse(configString);
-            this.Account = new AccountConfiguration((string)bodyData["KeyPassword"], (string)bodyData["Email"], (string)bodyData["UID"], (string)bodyData["AccessToken"]);
+            this.Account = new AccountConfiguration((string)bodyData["KeyPassword"], (string)bodyData["Email"], (string)bodyData["UID"], (string)bodyData["AccessToken"], false);
             IsLoaded = true;
         }
 
         public void Save()
         {
+            if(this.Account != null)
+            {
+                var path = ConfigurationInfo();
+                var filename = Path.Combine(path, ConfigurationFile_Accounts);
+                JObject sessionData = new JObject();
+                sessionData["KeyPassword"] = new JValue((string)this.Account.KeyPassword);
+                sessionData["Email"] = new JValue((string)this.Account.Email);
+                sessionData["UID"] = new JValue((string)this.Account.UID);
+                sessionData["AccessToken"] = new JValue((string)this.Account.AccessToken);
+                var configString = JsonConvert.SerializeObject(sessionData);
 
+                File.WriteAllText(filename, configString);
+            }
+        }
+
+        public void Revoke()
+        {
             var path = ConfigurationInfo();
             var filename = Path.Combine(path, ConfigurationFile_Accounts);
-            JObject sessionData = new JObject();
-            sessionData["KeyPassword"] = new JValue((string)this.Account.KeyPassword);
-            sessionData["Email"] = new JValue((string)this.Account.Email);
-            sessionData["UID"] = new JValue((string)this.Account.UID);
-            sessionData["AccessToken"] = new JValue((string)this.Account.AccessToken);
-            var configString = JsonConvert.SerializeObject(sessionData);
-
-            File.WriteAllText(filename, configString);
+            File.Delete(filename);
         }
 
         private string ConfigurationInfo()

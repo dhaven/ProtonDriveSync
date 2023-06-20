@@ -3,35 +3,31 @@ using System.Windows.Forms;
 using System.Drawing;
 using KeePass.UI;
 using ProtonSecrets.Configuration;
+using ProtonSecrets.StorageProvider;
 using System.Threading.Tasks;
 using System.IO;
 
-namespace ProtonSecrets.StorageProvider
+namespace ProtonSecrets.Forms
 {
     public class ProtonDriveAccountForm : Form
     {
-        private Label m_lblUsername;
-        private TextBox m_txtUsername;
-        private Label m_lblPassword;
-        private TextBox m_txtPassword;
-        private Label m_lbl2fa;
-        private TextBox m_txt2fa;
-        private Button m_btnLogin;
-        private Button m_btnDecrypt;
-        private GroupBox m_grpCredentials;
+        private Label lbl_email;
+        private TextBox txt_email;
+        private TextBox txt_password;
+        private Label lbl_password;
+        private Button btn_signin;
+        private Label lbl_title;
+        private GroupBox logingroup;
 
-        public string Username { get { return m_txtUsername.Text.Trim(); } }
-        public string Password { get { return m_txtPassword.Text.Trim(); } }
-        public string TwoFA { get { return m_txt2fa.Text.Trim(); } }
+        public string Username { get { return txt_email.Text.Trim(); } }
+        public string Password { get { return txt_password.Text.Trim(); } }
         public AccountConfiguration Account;
-        private ProtonAPI _api;
+        private ProtonDriveStorageProvider _provider;
 
-        protected bool? TestResult { get; set; }
-
-        public ProtonDriveAccountForm(ProtonAPI api)
+        public ProtonDriveAccountForm(ProtonDriveStorageProvider provider)
         {
+            _provider = provider;
             InitializeComponent();
-            _api = api;
         }
 
         private void OnFormLoad(object sender, EventArgs e)
@@ -47,16 +43,22 @@ namespace ProtonSecrets.StorageProvider
         private async void OnLogin(object sender, EventArgs e)
         {
             //login the user
-            this.Account = await _api.Login(this.Username, this.Password, this.TwoFA);
+            //this.Account = await _api.Login(this.Username, this.Password, this.TwoFA);
+            this.Account = await _provider._api.Authenticate(this.Username, this.Password);
+            if (this.Account.Is2faEnabled)
+            {
+                var form = new ProtonDrive2FA(_provider._api);
+                var result = UIUtil.ShowDialogAndDestroy(form);
+
+                if (result != DialogResult.OK)
+                    return;
+            }
             //Set TestResult to True if successfully logged in
             if (this.Account != null)
+            {
+                this.Account.KeyPassword = await _provider._api.ComputeKeyPassword(this.Password);
                 this.DialogResult = DialogResult.OK;
-        }
-
-        private async void OnDecrypt(object sender, EventArgs e)
-        {
-            //upload file
-            await _api.Upload(new FileStream("Proton-logos.zip", FileMode.Open, FileAccess.Read), new DateTimeOffset(DateTime.UtcNow).ToUnixTimeSeconds().ToString());
+            }
         }
 
         private void OnFormClosing(object sender, FormClosingEventArgs e)
@@ -70,111 +72,88 @@ namespace ProtonSecrets.StorageProvider
 
         private void InitializeComponent()
         {
-            this.m_lblUsername = new Label();
-            this.m_txtUsername = new TextBox();
-            this.m_lblPassword = new Label();
-            this.m_txtPassword = new TextBox();
-            this.m_btnLogin = new Button();
-            this.m_btnDecrypt = new Button();
-            this.m_lbl2fa = new Label();
-            this.m_txt2fa = new TextBox();
-            this.m_grpCredentials = new GroupBox();
-            this.m_grpCredentials.SuspendLayout();
+            this.lbl_email = new Label();
+            this.txt_email = new TextBox();
+            this.txt_password = new TextBox();
+            this.lbl_password = new Label();
+            this.btn_signin = new Button();
+            this.lbl_title = new Label();
+            this.logingroup = new GroupBox();
+            this.logingroup.SuspendLayout();
             this.SuspendLayout();
 
-            this.m_lblUsername.AutoSize = true;
-            this.m_lblUsername.Font = new Font("Microsoft Sans Serif", 8.25F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(0)));
-            this.m_lblUsername.Location = new Point(6, 22);
-            this.m_lblUsername.Name = "m_lblUsername";
-            this.m_lblUsername.Size = new Size(73, 13);
-            this.m_lblUsername.TabIndex = 0;
-            this.m_lblUsername.Text = "Username";
+            this.lbl_email.AutoSize = true;
+            this.lbl_email.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(0)));
+            this.lbl_email.Location = new Point(26, 33);
+            this.lbl_email.Name = "lbl_email";
+            this.lbl_email.Size = new Size(60, 25);
+            this.lbl_email.Text = "Email";
 
-            this.m_txtUsername.Anchor = ((AnchorStyles)(((AnchorStyles.Top | AnchorStyles.Left) | AnchorStyles.Right)));
-            this.m_txtUsername.Location = new Point(158, 19);
-            this.m_txtUsername.Name = "m_txtUsername";
-            this.m_txtUsername.Size = new Size(265, 20);
-            this.m_txtUsername.TabIndex = 1;
+            this.txt_email.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(0)));
+            this.txt_email.Location = new Point(31, 61);
+            this.txt_email.Name = "txt_email";
+            this.txt_email.Size = new Size(216, 32);
+            this.txt_email.TabIndex = 0;
 
-            this.m_lblPassword.AutoSize = true;
-            this.m_lblPassword.Font = new Font("Microsoft Sans Serif", 8.25F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(0)));
-            this.m_lblPassword.Location = new Point(6, 48);
-            this.m_lblPassword.Name = "m_lblPassword";
-            this.m_lblPassword.Size = new Size(69, 13);
-            this.m_lblPassword.TabIndex = 2;
-            this.m_lblPassword.Text = "Password";
+            this.lbl_password.AutoSize = true;
+            this.lbl_password.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(0)));
+            this.lbl_password.Location = new Point(26, 112);
+            this.lbl_password.Name = "lbl_password";
+            this.lbl_password.Size = new Size(98, 25);
+            this.lbl_password.Text = "Password";
 
-            this.m_txtPassword.Anchor = ((AnchorStyles)(((AnchorStyles.Top | AnchorStyles.Left) | AnchorStyles.Right)));
-            this.m_txtPassword.Location = new Point(158, 45);
-            this.m_txtPassword.Name = "m_txtPassword";
-            this.m_txtPassword.Size = new Size(265, 20);
-            this.m_txtPassword.TabIndex = 3;
+            this.txt_password.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(0)));
+            this.txt_password.Location = new Point(31, 140);
+            this.txt_password.Name = "txt_password";
+            this.txt_password.Size = new Size(216, 32);
+            this.txt_password.TabIndex = 1;
 
-            this.m_lbl2fa.AutoSize = true;
-            this.m_lbl2fa.Font = new Font("Microsoft Sans Serif", 8.25F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(0)));
-            this.m_lbl2fa.Location = new Point(6, 74);
-            this.m_lbl2fa.Name = "m_lbl2fa";
-            this.m_lbl2fa.Size = new Size(69, 13);
-            this.m_lbl2fa.TabIndex = 4;
-            this.m_lbl2fa.Text = "2fa";
+            this.btn_signin.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(0)));
+            this.btn_signin.Location = new Point(31, 213);
+            this.btn_signin.Name = "btn_signin";
+            this.btn_signin.Size = new Size(216, 38);
+            this.btn_signin.TabIndex = 2;
+            this.btn_signin.Text = "Sign in";
+            this.btn_signin.UseVisualStyleBackColor = true;
+            this.btn_signin.Click += new EventHandler(this.OnLogin);
 
-            this.m_txt2fa.Anchor = ((AnchorStyles)(((AnchorStyles.Top | AnchorStyles.Left) | AnchorStyles.Right)));
-            this.m_txt2fa.Location = new Point(158, 71);
-            this.m_txt2fa.Name = "m_txt2fa";
-            this.m_txt2fa.Size = new Size(265, 20);
-            this.m_txt2fa.TabIndex = 5;
+            this.lbl_title.AutoSize = true;
+            this.lbl_title.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(0)));
+            this.lbl_title.Location = new Point(12, 28);
+            this.lbl_title.MaximumSize = new Size(500, 0);
+            this.lbl_title.Name = "lbl_title";
+            this.lbl_title.Size = new Size(613, 65);
+            this.lbl_title.Text = "Connect with your Proton account to access your KDBX files stored in ProtonDrive.";
 
-            this.m_btnLogin.Anchor = ((AnchorStyles)((AnchorStyles.Bottom | AnchorStyles.Left)));
-            this.m_btnLogin.Location = new Point(12, 301);
-            this.m_btnLogin.Name = "m_btnLogin";
-            this.m_btnLogin.Size = new Size(75, 23);
-            this.m_btnLogin.TabIndex = 6;
-            this.m_btnLogin.Text = "Login";
-            this.m_btnLogin.UseVisualStyleBackColor = true;
-            this.m_btnLogin.Click += new EventHandler(this.OnLogin);
+            this.logingroup.Controls.Add(this.lbl_email);
+            this.logingroup.Controls.Add(this.txt_email);
+            this.logingroup.Controls.Add(this.btn_signin);
+            this.logingroup.Controls.Add(this.lbl_password);
+            this.logingroup.Controls.Add(this.txt_password);
+            this.logingroup.Location = new Point(173, 109);
+            this.logingroup.Name = "logingroup";
+            this.logingroup.Size = new Size(288, 292);
+            this.logingroup.TabIndex = 6;
+            this.logingroup.TabStop = false;
 
-            this.m_btnDecrypt.Anchor = ((AnchorStyles)((AnchorStyles.Bottom | AnchorStyles.Right)));
-            this.m_btnDecrypt.Location = new Point(87, 301);
-            this.m_btnDecrypt.Name = "m_btnDecrypt";
-            this.m_btnDecrypt.Size = new Size(75, 23);
-            this.m_btnDecrypt.TabIndex = 6;
-            this.m_btnDecrypt.Text = "Decrypt";
-            this.m_btnDecrypt.UseVisualStyleBackColor = true;
-            this.m_btnDecrypt.Click += new EventHandler(this.OnDecrypt);
-
-            this.m_grpCredentials.Anchor = ((AnchorStyles)(((AnchorStyles.Top | AnchorStyles.Left) | AnchorStyles.Right)));
-            this.m_grpCredentials.Controls.Add(this.m_lblUsername);
-            this.m_grpCredentials.Controls.Add(this.m_txtUsername);
-            this.m_grpCredentials.Controls.Add(this.m_lblPassword);
-            this.m_grpCredentials.Controls.Add(this.m_txtPassword);
-            this.m_grpCredentials.Controls.Add(this.m_lbl2fa);
-            this.m_grpCredentials.Controls.Add(this.m_txt2fa);
-            this.m_grpCredentials.Font = new Font("Microsoft Sans Serif", 8.25F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(0)));
-            this.m_grpCredentials.Location = new Point(12, 66);
-            this.m_grpCredentials.Name = "m_grpCredentials";
-            this.m_grpCredentials.Size = new Size(429, 100);
-            this.m_grpCredentials.TabIndex = 19;
-            this.m_grpCredentials.TabStop = false;
-            this.m_grpCredentials.Text = "Credentials";
-
-            this.Controls.Add(this.m_btnLogin);
-            this.Controls.Add(this.m_grpCredentials);
-            this.Controls.Add(this.m_btnDecrypt);
-            this.AutoScaleDimensions = new SizeF(6F, 13F);
+            this.AutoScaleDimensions = new SizeF(8F, 16F);
             this.AutoScaleMode = AutoScaleMode.Font;
-            this.ClientSize = new Size(600, 336);
+            this.ClientSize = new Size(640, 434);
+            this.StartPosition = FormStartPosition.CenterParent;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
+            this.Controls.Add(this.logingroup);
+            this.Controls.Add(this.lbl_title);
             this.MaximizeBox = false;
             this.MinimizeBox = false;
-            this.Name = "Proton Account";
-            this.StartPosition = FormStartPosition.CenterParent;
-            this.Text = "Authenticate with your Proton account";
+            this.Name = "signinform";
+            this.Text = "Sign in";
             this.FormClosing += new FormClosingEventHandler(this.OnFormClosing);
             this.FormClosed += new FormClosedEventHandler(this.OnFormClosed);
-            this.Load += new System.EventHandler(this.OnFormLoad);
-            this.m_grpCredentials.ResumeLayout(false);
-            this.m_grpCredentials.PerformLayout();
+            this.Load += new EventHandler(this.OnFormLoad);
+            this.logingroup.ResumeLayout(false);
+            this.logingroup.PerformLayout();
             this.ResumeLayout(false);
+            this.PerformLayout();
         }
     }
 }
