@@ -121,8 +121,9 @@ namespace ProtonSecrets.StorageProvider
         }
 
         /*
-         * Convert a byte array to BigInteger. We need to specify the sign of the byte array by
-         * appending the byte 0. See https://stackoverflow.com/questions/22053462/microsoft-biginteger-goes-negative-when-i-import-from-an-array
+         * Convert a byte array to BigInteger. Convert to 2's complement by adding a 0
+         * We know this is ok because input is always positive
+         * . See https://stackoverflow.com/questions/22053462/microsoft-biginteger-goes-negative-when-i-import-from-an-array
          * */
         public static BigInteger ByteToBigInteger(byte[] input)
         {
@@ -147,7 +148,7 @@ namespace ProtonSecrets.StorageProvider
         /*
          * Hash the input byte array by applying the sha512 algorithm
          */
-        private static byte[] Digest(byte[] input)
+        public static byte[] Digest(byte[] input)
         {
             byte[] input0 = Concat(input, new Byte[] { Convert.ToByte(0) });
             byte[] input1 = Concat(input, new Byte[] { Convert.ToByte(1) });
@@ -161,7 +162,7 @@ namespace ProtonSecrets.StorageProvider
             return Concat(Concat(shaOutpu1, shaOutpu2), Concat(shaOutpu3, shaOutpu4));
         }
 
-        private static string ProtonSalt(byte[] salt)
+        public static string ProtonSalt(byte[] salt)
         {
             //Compute the salt for the password hash
             byte[] protonBytes = Encoding.ASCII.GetBytes("proton");
@@ -377,8 +378,8 @@ namespace ProtonSecrets.StorageProvider
         }
 
         /**
- * Generate a string of four random hex characters
- */
+         * Generate a string of four random hex characters
+         */
         public static string RandomHexString()
         {
             Random rand = new Random();

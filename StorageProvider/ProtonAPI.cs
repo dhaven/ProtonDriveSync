@@ -27,6 +27,7 @@ using BCrypt.Net;
 using KeePassLib;
 using System.Runtime.CompilerServices;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.TextBox;
+using KeePass.Resources;
 
 namespace ProtonSecrets.StorageProvider {
 
@@ -183,7 +184,6 @@ namespace ProtonSecrets.StorageProvider {
             return passwordHash.Substring(29);
         }
 
-        //logs the user in and returns the corresponding account configuration
         public async Task<AccountConfiguration> Authenticate(string username, string password)
         {
             Dictionary<string, string> authPayload = new Dictionary<string, string>();
@@ -191,44 +191,18 @@ namespace ProtonSecrets.StorageProvider {
             string json = JsonConvert.SerializeObject(authPayload, Formatting.Indented);
             StringContent data = new StringContent(json, Encoding.UTF8, "application/json");
             JObject authInfo = await ProtonRequest("POST", "https://api.protonmail.ch/auth/info", data);
-            EncryptionKeys encryptionKeys = new EncryptionKeys(Util.SRP_MODULUS_KEY);
-            // Verify signed  message
-            PGP pgp = new PGP(encryptionKeys);
-            bool verified = await pgp.VerifyClearArmoredStringAsync((string)authInfo["Modulus"]);
-            VerificationResult result = await pgp.VerifyAndReadClearArmoredStringAsync((string)authInfo["Modulus"]);
-            //get other info from response
-            int version = int.Parse((string)authInfo["Version"]);
-            byte[] server_challenge = Convert.FromBase64String((string)authInfo["ServerEphemeral"]);
-            byte[] salt = Convert.FromBase64String((string)authInfo["Salt"]);
-            //Compute the SRP proof
-            SRP srpRes = Util.SRPCheck(result.ClearText, server_challenge, version, salt, username, password, (string)authInfo["SRPSession"]);
-            if (srpRes == null)
-            {
-                MessageService.ShowInfo("failed SRP authentication: unable to compute the proof");
-                return null;
-            }
-            //Validate SRP proof against the server
+            //getSrp
+            Dictionary<string,string> authData = await SRP.GetSrp(authInfo, username, password);
+            //CallAndValidate
             Dictionary<string, string> SRPAuth = new Dictionary<string, string>();
             SRPAuth["Username"] = username;
-            SRPAuth["ClientEphemeral"] = srpRes.ClientEphemeral;
-            SRPAuth["ClientProof"] = srpRes.ClientProof;
+            SRPAuth["ClientEphemeral"] = authData["clientEphemeral"];
+            SRPAuth["ClientProof"] = authData["clientProof"];
             SRPAuth["SRPSession"] = (string)authInfo["SRPSession"];
             string SRPAuthJson = JsonConvert.SerializeObject(SRPAuth);
             StringContent SRPAuthData = new StringContent(SRPAuthJson, Encoding.UTF8, "application/json");
             JObject srpResult = await ProtonRequest("POST", "https://api.protonmail.ch/auth", SRPAuthData);
-            if (srpResult != null && !srpResult.ContainsKey("ServerProof"))
-            {
-                MessageService.ShowInfo("failed SRP authentication: missing proof returned by server");
-                return null;
-            }
-            else if (srpResult == null)
-            {
-                MessageService.ShowInfo("failed SRP authentication");
-                return null;
-            }
-            byte[] actualServerProof = Convert.FromBase64String((string)srpResult["ServerProof"]);
-            BigInteger actualServerProofBig = Util.ByteToBigInteger(actualServerProof);
-            if (Util.ByteToBigInteger(srpRes.expectedServerProof) == actualServerProofBig)
+            if (authData["expectedServerProof"] == (string)srpResult["ServerProof"])
             {
                 //add headers for later requests
                 this.client.DefaultRequestHeaders.Remove("x-pm-uid");

@@ -73,6 +73,7 @@ namespace ProtonSecrets
             {
                 var dlg = new SignedInAccount(_storageService._storageProvider._configService.Account.Email, _storageService._storageProvider);
                 var result = UIUtil.ShowDialogAndDestroy(dlg);
+                _storageService._storageProvider._configService.Account = null;
             }
             else
             {
