@@ -140,7 +140,7 @@
             this.MinimizeBox = false;
             this.Name = "ProtonDriveFilePicker";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
-            this.Text = "ProtonDrive Picker";
+            this.Text = "Select database file";
             this.FormClosed += new System.Windows.Forms.FormClosedEventHandler(this.OnFormClosed);
             this.Load += new System.EventHandler(this.OnFormLoad);
             this.ResumeLayout(false);

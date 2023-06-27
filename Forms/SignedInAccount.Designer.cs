@@ -92,7 +92,6 @@ namespace ProtonSecrets.Forms
             this.Name = "SignedInAccount";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
             this.Text = "Proton account connection";
-            this.Load += new System.EventHandler(this.SignedInAccount_Load);
             ((System.ComponentModel.ISupportInitialize)(this.pictureBox1)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();

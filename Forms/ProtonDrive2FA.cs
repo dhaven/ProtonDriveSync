@@ -1,4 +1,5 @@
 ﻿using KeePass.UI;
+using KeePassLib.Utility;
 using ProtonSecrets.Configuration;
 using ProtonSecrets.StorageProvider;
 using System;
@@ -20,6 +21,7 @@ namespace ProtonSecrets.Forms
         public string TwoFA { get { return txt_2fa_1.Text.Trim() + txt_2fa_2.Text.Trim() + txt_2fa_3.Text.Trim() + txt_2fa_4.Text.Trim() + txt_2fa_5.Text.Trim() + txt_2fa_6.Text.Trim(); } }
         public AccountConfiguration Account;
         private ProtonAPI _api;
+        private Cursor m_savedCursor;
 
         public ProtonDrive2FA(ProtonAPI api)
         {
@@ -37,16 +39,44 @@ namespace ProtonSecrets.Forms
             GlobalWindowManager.RemoveWindow(this);
         }
 
-        private void OnFormClosing(object sender, FormClosingEventArgs e)
-        {
-            if (this.DialogResult != DialogResult.OK)
-                return;
-        }
-
         private async void OnAuthenticate(object sender, EventArgs e)
         {
-            await _api.Validate2fa(this.TwoFA);
-            this.DialogResult = DialogResult.OK;
+            try
+            {
+                SetWaitState(true);
+                await _api.Validate2fa(this.TwoFA);
+                SetWaitState(false);
+                this.DialogResult = DialogResult.OK;
+            }
+            catch(Exception ex)
+            {
+                SetWaitState(false);
+                MessageService.ShowFatal(ex.Message);
+            }
+        }
+
+        private void SetWaitState(bool isWait)
+        {
+            if (isWait && m_savedCursor != null) return;
+
+            txt_2fa_2.Enabled = !isWait;
+            txt_2fa_3.Enabled = !isWait;
+            txt_2fa_6.Enabled = !isWait;
+            txt_2fa_5.Enabled = !isWait;
+            txt_2fa_4.Enabled = !isWait;
+            txt_2fa_1.Enabled = !isWait;
+            btn_auth.Enabled = !isWait;
+
+            if (isWait)
+            {
+                m_savedCursor = Cursor;
+                Cursor = Cursors.WaitCursor;
+            }
+            else
+            {
+                Cursor = m_savedCursor;
+                m_savedCursor = null;
+            }
         }
 
         private void txt_2fa_1_TextChanged(object sender, EventArgs e)

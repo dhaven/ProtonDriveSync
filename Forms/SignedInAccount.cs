@@ -37,15 +37,17 @@ namespace ProtonSecrets.Forms
 
         private async void OnLogout(object sender, EventArgs e)
         {
-            await _provider._api.Logout();
-            _provider._configService.Revoke();
-            MessageService.ShowInfo("Successfully logged out.");
-            this.DialogResult = DialogResult.OK;
-        }
-
-        private void SignedInAccount_Load(object sender, EventArgs e)
-        {
-
+            try
+            {
+                await _provider._api.Logout();
+                _provider._configService.Revoke();
+                MessageService.ShowInfo("Successfully logged out.");
+                this.DialogResult = DialogResult.OK;
+            }
+            catch(Exception exception)
+            {
+                MessageService.ShowFatal(exception.Message);
+            }
         }
     }
 }

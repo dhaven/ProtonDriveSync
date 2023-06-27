@@ -31,7 +31,6 @@ namespace ProtonSecrets.Forms
             Save,
         }
         private ConfigurationService m_configService;
-        private bool m_isInit;
         private StorageService _storageService;
         private ProtonDriveStorageProvider _provider;
         private Mode _mode;
@@ -39,6 +38,7 @@ namespace ProtonSecrets.Forms
         private readonly Stack<IEnumerable<ProtonDriveItem>> m_stack = new Stack<IEnumerable<ProtonDriveItem>>();
         private string folderPath;
         private KpResources _kpResources;
+        private Cursor m_savedCursor;
 
         public string ResultUri
         {
@@ -60,9 +60,7 @@ namespace ProtonSecrets.Forms
         private async void OnFormLoad(object sender, EventArgs e)
         {
             GlobalWindowManager.AddWindow(this);
-
-            m_isInit = true;
-
+            SetWaitState(true);
             m_ilFiletypeIcons.Images.Add(IconFolder, _kpResources.B16x16_Folder);
             m_ilFiletypeIcons.Images.Add(IconDatabase, _kpResources.B16x16_KeePass);
             m_ilFiletypeIcons.Images.Add(IconDocument, _kpResources.B16x16_Binary);
@@ -79,18 +77,17 @@ namespace ProtonSecrets.Forms
             UIUtil.ResizeColumns(m_lvDetails, new int[] {
                 3, 1, 1, 2 }, true);
 
-            m_isInit = false;
-
             try
             {
                 m_selectedItem = await _storageService._storageProvider.GetRootItem();
-                //m_stack.Push(m_selectedItem);
             }
             catch (Exception ex)
             {
-                MessageService.ShowWarning("Error getting Root node.\r\nException:", ex);
+                MessageService.ShowWarning(ex.Message);
+                return;
             }
             await UpdateListView();
+            SetWaitState(false);
             m_txtFilename.Text = GetFilePath();
         }
 
@@ -116,11 +113,22 @@ namespace ProtonSecrets.Forms
                                 break;
 
                             case StorageProviderItemType.Folder:
+                                SetWaitState(true);
                                 m_stack.Push(m_selectedItem);
                                 PushFolder(subItem.Name);
                                 m_txtFilename.Text = "";
-                                m_selectedItem = await _storageService._storageProvider.GetChildrenForItem(subItem);
+                                try
+                                {
+                                    m_selectedItem = await _storageService._storageProvider.GetChildrenForItem(subItem);
+                                }
+                                catch(Exception ex)
+                                {
+                                    MessageService.ShowFatal(ex.Message);
+                                    SetWaitState(false);
+                                    return;
+                                }
                                 await UpdateListView();
+                                SetWaitState(false);
                                 break;
                         }
                     }
@@ -227,6 +235,7 @@ namespace ProtonSecrets.Forms
             switch (item.Type)
             {
                 case StorageProviderItemType.Folder:
+                    SetWaitState(true);
                     if (m_lvDetails.FocusedItem.Text == @"..")
                     {
                         PopFolder();
@@ -238,9 +247,18 @@ namespace ProtonSecrets.Forms
                         m_stack.Push(m_selectedItem);
                         PushFolder(item.Name);
                         m_txtFilename.Text = "";
-                        m_selectedItem = await _storageService._storageProvider.GetChildrenForItem(item);
+                        try
+                        {
+                            m_selectedItem = await _storageService._storageProvider.GetChildrenForItem(item);
+                        }
+                        catch(Exception ex)
+                        {
+                            MessageService.ShowFatal(ex.Message);
+                            return;
+                        }
                     }
                     await UpdateListView();
+                    SetWaitState(false);
                     break;
                 case StorageProviderItemType.File:
                     this.DialogResult = DialogResult.OK;
@@ -277,6 +295,28 @@ namespace ProtonSecrets.Forms
             if (string.IsNullOrEmpty(extension)) return IconDocument;
 
             return extension.ToLower() == ".kdbx" ? IconDatabase : IconDocument;
+        }
+
+        private void SetWaitState(bool isWait)
+        {
+            if (isWait && m_savedCursor != null) return;
+
+            m_btnCancel.Enabled = !isWait;
+            m_lvDetails.Enabled = !isWait;
+            m_btnOk.Enabled = !isWait;
+            m_txtFilename.Enabled = !isWait;
+            m_cbFilter.Enabled = !isWait;
+
+            if (isWait)
+            {
+                m_savedCursor = Cursor;
+                Cursor = Cursors.WaitCursor;
+            }
+            else
+            {
+                Cursor = m_savedCursor;
+                m_savedCursor = null;
+            }
         }
     }
 }

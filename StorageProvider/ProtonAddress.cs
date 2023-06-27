@@ -16,31 +16,27 @@ namespace ProtonSecrets.StorageProvider
         public PGP privateKey;
         public string id;
         public string passphrase;
+        public string email;
 
-        public ProtonAddress(PGP privateKey, string id, string passphrase)
+        public ProtonAddress(PGP privateKey, string id, string passphrase, string email)
         {
             this.privateKey = privateKey;
             this.privateKey.HashAlgorithmTag = HashAlgorithmTag.Sha256;
             this.id = id;
             this.passphrase = passphrase;
+            this.email = email;
         }
 
-        public async static Task<ProtonAddress> Initialize(string email, PGP userPrivateKey, HttpClient client)
+        public async static Task<ProtonAddress> Initialize(string email, PGP userPrivateKey, ProtonAPI api)
         {
-            JObject addressInfo = null;
+            JObject addressInfo;
             try
             {
-                HttpResponseMessage response = await client.GetAsync("https://api.protonmail.ch/addresses");
-                //response.EnsureSuccessStatusCode();
-                string responseBody = await response.Content.ReadAsStringAsync();
-                JObject bodyData = JObject.Parse(responseBody); ;
-                addressInfo = bodyData;
+                addressInfo = await api.ProtonRequest("GET", "https://api.protonmail.ch/addresses");
             }
-            catch (HttpRequestException exception)
+            catch (Exception exception)
             {
-                Console.WriteLine("\nException Caught!");
-                Console.WriteLine("Message :{0} ", exception.Message);
-                MessageService.ShowInfo(exception.Message);
+                throw new Exception("Unable to intialize address info: " + exception.Message);
             }
             JArray addresses = (JArray)addressInfo["Addresses"];
             JArray keys = null;
@@ -65,7 +61,7 @@ namespace ProtonSecrets.StorageProvider
             }
             string decryptedToken = await userPrivateKey.DecryptArmoredStringAsync(addressToken);
             EncryptionKeys adddressKeys_enc = new EncryptionKeys(addressPrivateKey, decryptedToken);
-            return new ProtonAddress(new PGP(adddressKeys_enc), addressID, decryptedToken);
+            return new ProtonAddress(new PGP(adddressKeys_enc), addressID, decryptedToken, email);
         }
     }
 }

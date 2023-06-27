@@ -21,7 +21,7 @@ namespace ProtonSecrets.StorageProvider
             this._configService = configService;
             if (configService.Account != null)
             {
-                this._api.AddAuthHeaders(_configService.Account.UID, _configService.Account.AccessToken);
+                this._api.AddAuthHeaders(_configService.Account.UID, _configService.Account.AccessToken, _configService.Account.RefreshToken);
             }
         }
 

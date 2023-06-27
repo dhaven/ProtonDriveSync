@@ -25,22 +25,16 @@ namespace ProtonSecrets.StorageProvider
             this.linkID = linkID;
         }
 
-        public static async Task<ProtonShare> Initialize(ProtonAddress addressInfo, HttpClient client)
+        public static async Task<ProtonShare> Initialize(ProtonAddress addressInfo, ProtonAPI api)
         {
-            JObject sharesInfo = null;
+            JObject sharesInfo;
             try
             {
-                HttpResponseMessage response = await client.GetAsync("https://api.protonmail.ch/drive/shares");
-                //response.EnsureSuccessStatusCode();
-                string responseBody = await response.Content.ReadAsStringAsync();
-                JObject bodyData = JObject.Parse(responseBody); ;
-                sharesInfo = bodyData;
+                sharesInfo = await api.ProtonRequest("GET", "https://api.protonmail.ch/drive/shares");
             }
-            catch (HttpRequestException exception)
+            catch (Exception exception)
             {
-                Console.WriteLine("\nException Caught!");
-                Console.WriteLine("Message :{0} ", exception.Message);
-                MessageService.ShowInfo(exception.Message);
+                throw new Exception("unable to initialize shares info: " +  exception.Message);
             }
             JArray shares = (JArray)sharesInfo["Shares"];
             string shareId = "";
@@ -51,20 +45,14 @@ namespace ProtonSecrets.StorageProvider
                     shareId = (string)shares[i]["ShareID"];
                 }
             }
-            JObject shareInfo = null;
+            JObject shareInfo;
             try
             {
-                HttpResponseMessage response = await client.GetAsync("https://api.protonmail.ch/drive/shares/" + shareId);
-                //response.EnsureSuccessStatusCode();
-                string responseBody = await response.Content.ReadAsStringAsync();
-                JObject bodyData = JObject.Parse(responseBody); ;
-                shareInfo = bodyData;
+                shareInfo = await api.ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + shareId);
             }
-            catch (HttpRequestException exception)
+            catch (Exception exception)
             {
-                Console.WriteLine("\nException Caught!");
-                Console.WriteLine("Message :{0} ", exception.Message);
-                MessageService.ShowInfo(exception.Message);
+                throw new Exception ("unable to initialize specific share info: " + exception.Message);
             }
             string sharePrivateKey = (string)shareInfo["Key"];
             string sharePassphrase = (string)shareInfo["Passphrase"];

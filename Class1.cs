@@ -9,6 +9,7 @@ using KeePassLib.Serialization;
 using ProtonSecrets.Configuration;
 using ProtonSecrets.StorageProvider;
 using ProtonSecrets.Forms;
+using System.Collections.Generic;
 
 namespace ProtonSecrets
 {
@@ -22,6 +23,7 @@ namespace ProtonSecrets
         private IPluginHost _host;
         private StorageService _storageService;
         private KpResources _kpResources;
+        private Cursor m_savedCursor;
 
         public override bool Initialize(IPluginHost pluginHost)
         {
@@ -35,7 +37,14 @@ namespace ProtonSecrets
             _configService.Load();
 
             //Initialize the Proton provider
-            _storageService = new StorageService(new ProtonDriveStorageProvider(_configService));
+            try
+            {
+                _storageService = new StorageService(new ProtonDriveStorageProvider(_configService));
+            }
+            catch(Exception exception)
+            {
+                MessageService.ShowFatal(exception.Message);
+            }
             _storageService.RegisterPrefixes();
 
             // Initialize KeePass-Resource Service
@@ -73,7 +82,10 @@ namespace ProtonSecrets
             {
                 var dlg = new SignedInAccount(_storageService._storageProvider._configService.Account.Email, _storageService._storageProvider);
                 var result = UIUtil.ShowDialogAndDestroy(dlg);
-                _storageService._storageProvider._configService.Account = null;
+                if(result == DialogResult.OK)
+                {
+                    _storageService._storageProvider._configService.Account = null;
+                }
             }
             else
             {
@@ -84,7 +96,14 @@ namespace ProtonSecrets
                 {
                     _storageService._storageProvider._configService.Account = dlg.Account;
                     _storageService._storageProvider._configService.IsLoaded = true;
-                    await _storageService._storageProvider.Init();
+                    try
+                    {
+                        await _storageService._storageProvider.Init();
+                    }
+                    catch(Exception ex)
+                    {
+                        MessageService.ShowFatal(ex);
+                    }
                 }
             }
         }
@@ -103,7 +122,14 @@ namespace ProtonSecrets
             var ci = IOConnectionInfo.FromPath("proton:///" + form.ResultUri);
             ci.CredSaveMode = IOCredSaveMode.SaveCred;
 
-            _host.MainWindow.OpenDatabase(ci, null, false);
+            try
+            {
+                _host.MainWindow.OpenDatabase(ci, null, false);
+            }
+            catch(Exception ex )
+            {
+                MessageService.ShowFatal(ex.Message);
+            }
         }
 
         private async void OnSaveToProtonDrive(object sender, EventArgs eventArgs)
@@ -122,7 +148,14 @@ namespace ProtonSecrets
             var ci = IOConnectionInfo.FromPath("proton:///" + form.ResultUri);
             ci.CredSaveMode = IOCredSaveMode.SaveCred;
 
-            _host.MainWindow.SaveDatabaseAs(_host.Database, ci, true, null, true);
+            try
+            {
+                _host.MainWindow.SaveDatabaseAs(_host.Database, ci, true, null, true);
+            }
+            catch(Exception ex )
+            {
+                MessageService.ShowFatal(ex.Message);
+            }
         }
 
         private async Task<bool> HasAccounts()
@@ -147,7 +180,14 @@ namespace ProtonSecrets
                 {
                     _storageService._storageProvider._configService.Account = dlg.Account;
                     _storageService._storageProvider._configService.IsLoaded = true;
-                    await _storageService._storageProvider.Init();
+                    try
+                    {
+                        await _storageService._storageProvider.Init();
+                    }
+                    catch(Exception ex)
+                    {
+                        MessageService.ShowFatal(ex.Message);
+                    }
                 }
             }
 
@@ -157,8 +197,13 @@ namespace ProtonSecrets
         public override void Terminate()
         {
             if (_host == null) return;
-
-            _configService.Save();
+            //get the latest refresh token stored with our API
+            if(_storageService._storageProvider._configService.Account != null)
+            {
+                _storageService._storageProvider._configService.Account.RefreshToken = _storageService._storageProvider._api.RefreshToken;
+                _storageService._storageProvider._configService.Account.AccessToken = _storageService._storageProvider._api.AccessToken;
+                _configService.Save();
+            }
         }
 
         public override ToolStripMenuItem GetMenuItem(PluginMenuType t)
@@ -174,6 +219,5 @@ namespace ProtonSecrets
 
             return null; // No menu items in other locations
         }
-        
     }
 }

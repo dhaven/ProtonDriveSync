@@ -139,7 +139,6 @@ namespace ProtonSecrets.Forms
             this.Name = "ProtonDrive2FA";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
             this.Text = "Two-factor authentication";
-            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.OnFormClosing);
             this.FormClosed += new System.Windows.Forms.FormClosedEventHandler(this.OnFormClosed);
             this.Load += new System.EventHandler(this.OnFormLoad);
             this.ResumeLayout(false);

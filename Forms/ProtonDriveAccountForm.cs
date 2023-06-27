@@ -6,6 +6,7 @@ using ProtonSecrets.Configuration;
 using ProtonSecrets.StorageProvider;
 using System.Threading.Tasks;
 using System.IO;
+using KeePassLib.Utility;
 
 namespace ProtonSecrets.Forms
 {
@@ -23,6 +24,7 @@ namespace ProtonSecrets.Forms
         public string Password { get { return txt_password.Text.Trim(); } }
         public AccountConfiguration Account;
         private ProtonDriveStorageProvider _provider;
+        private Cursor m_savedCursor;
 
         public ProtonDriveAccountForm(ProtonDriveStorageProvider provider)
         {
@@ -43,21 +45,30 @@ namespace ProtonSecrets.Forms
         private async void OnLogin(object sender, EventArgs e)
         {
             //login the user
-            //this.Account = await _api.Login(this.Username, this.Password, this.TwoFA);
-            this.Account = await _provider._api.Authenticate(this.Username, this.Password);
-            if (this.Account.Is2faEnabled)
+            try
             {
-                var form = new ProtonDrive2FA(_provider._api);
-                var result = UIUtil.ShowDialogAndDestroy(form);
+                SetWaitState(true);
+                this.Account = await _provider._api.Authenticate(this.Username, this.Password);
+                if (this.Account.Is2faEnabled)
+                {
+                    var form = new ProtonDrive2FA(_provider._api);
+                    var result = UIUtil.ShowDialogAndDestroy(form);
 
-                if (result != DialogResult.OK)
-                    return;
-            }
-            //Set TestResult to True if successfully logged in
-            if (this.Account != null)
-            {
+                    if (result != DialogResult.OK)
+                    {
+                        SetWaitState(false);
+                        return;
+                    }
+                }
                 this.Account.KeyPassword = await _provider._api.ComputeKeyPassword(this.Password);
                 this.DialogResult = DialogResult.OK;
+                MessageService.ShowInfo("Successfully logged in.");
+                SetWaitState(false);
+            }
+            catch(Exception exception)
+            {
+                SetWaitState(false);
+                MessageService.ShowFatal(exception.Message);
             }
         }
 
@@ -68,6 +79,26 @@ namespace ProtonSecrets.Forms
 
             if (this.Account == null)
                 e.Cancel = true;
+        }
+
+        private void SetWaitState(bool isWait)
+        {
+            if (isWait && m_savedCursor != null) return;
+
+            txt_email.Enabled = !isWait;
+            txt_password.Enabled = !isWait;
+            btn_signin.Enabled = !isWait;
+
+            if (isWait)
+            {
+                m_savedCursor = Cursor;
+                Cursor = Cursors.WaitCursor;
+            }
+            else
+            {
+                Cursor = m_savedCursor;
+                m_savedCursor = null;
+            }
         }
 
         private void InitializeComponent()

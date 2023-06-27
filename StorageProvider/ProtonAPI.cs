@@ -5,9 +5,6 @@ using System.Collections.Generic;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
-using System.Numerics;
-
-using KeePassLib.Utility;
 
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -22,12 +19,7 @@ using Org.BouncyCastle.Security;
 using Org.BouncyCastle.Bcpg.OpenPgp;
 using Org.BouncyCastle.Bcpg;
 using System.Security.Cryptography;
-using System.Windows.Forms.VisualStyles;
-using BCrypt.Net;
-using KeePassLib;
-using System.Runtime.CompilerServices;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.TextBox;
-using KeePass.Resources;
+using System.Net;
 
 namespace ProtonSecrets.StorageProvider {
 
@@ -39,7 +31,8 @@ namespace ProtonSecrets.StorageProvider {
         internal ProtonAddress addressInfo;
         internal ProtonShare shareInfo;
 
-        private string myemail = "david.haven@pm.me";
+        public string RefreshToken;
+        public string AccessToken;
 
         internal class FileData
         {
@@ -63,18 +56,27 @@ namespace ProtonSecrets.StorageProvider {
             this.client.DefaultRequestHeaders.Add("x-pm-appversion", "Other");
             this.client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0");
         }
-        public void AddAuthHeaders(string UID, string accessToken)
+        public void AddAuthHeaders(string UID, string accessToken, string refreshToken)
         {
             this.client.DefaultRequestHeaders.Remove("x-pm-uid");
             this.client.DefaultRequestHeaders.Add("x-pm-uid", UID);
             this.client.DefaultRequestHeaders.Remove("Authorization");
             this.client.DefaultRequestHeaders.Add("Authorization", "Bearer " + accessToken);
+            this.RefreshToken = refreshToken;
         }
 
         public async Task InitUserKeys(string email, string keyPassword)
         {
             //Get user info
-            JObject userInfo = await ProtonRequest("GET", "https://api.protonmail.ch/users");
+            JObject userInfo;
+            try
+            {
+                userInfo = await ProtonRequest("GET", "https://api.protonmail.ch/users");
+            }
+            catch (Exception exception)
+            {
+                throw new Exception("Unable to initialize user keys: " + exception.Message);
+            }
             JArray userKeys = (JArray)userInfo["User"]["Keys"];
             string userPrivateKey = "";
             for (int i = 0; i < userKeys.Count(); i++)
@@ -86,33 +88,43 @@ namespace ProtonSecrets.StorageProvider {
             }
             EncryptionKeys encryptionKeys = new EncryptionKeys(userPrivateKey, keyPassword);
             PGP userPrivateKey_pgp = new PGP(encryptionKeys);
-            if (this.addressInfo == null)
+            try
             {
-                this.addressInfo = await ProtonAddress.Initialize(email, userPrivateKey_pgp, this.client);
+                if (this.addressInfo == null)
+                {
+                    this.addressInfo = await ProtonAddress.Initialize(email, userPrivateKey_pgp, this);
+                }
+                if (this.shareInfo == null)
+                {
+                    this.shareInfo = await ProtonShare.Initialize(this.addressInfo, this);
+                }
             }
-            if(this.shareInfo == null)
+            catch(Exception exception)
             {
-                this.shareInfo = await ProtonShare.Initialize(this.addressInfo, this.client);
+                throw new Exception("Unbale to initialize user keys: " + exception.Message);
             }
         }
-        private async Task<JObject> ProtonRequest(string method, string url, StringContent data = null)
+        public async Task<JObject> ProtonRequest(string method, string url, StringContent data = null)
         {
+            JObject bodyData;
             if (method == "POST")
             {
                 try
                 {
                     HttpResponseMessage response = await this.client.PostAsync(url, data);
-                    //response.EnsureSuccessStatusCode();
+                    if(response.StatusCode == HttpStatusCode.Unauthorized)
+                    {
+                        await RefreshSession();
+                        response = await this.client.PostAsync(url, data);
+                    }
                     string responseBody = await response.Content.ReadAsStringAsync();
-                    JObject bodyData = JObject.Parse(responseBody);
-                    return bodyData;
+                    bodyData = JObject.Parse(responseBody);
                 }
                 catch (HttpRequestException exception)
                 {
                     Console.WriteLine("\nException Caught!");
                     Console.WriteLine("Message :{0} ", exception.Message);
-                    MessageService.ShowInfo(exception.Message);
-                    return null;
+                    throw;
                 }
             }
             else if(method == "PUT")
@@ -120,17 +132,19 @@ namespace ProtonSecrets.StorageProvider {
                 try
                 {
                     HttpResponseMessage response = await this.client.PutAsync(url, data);
-                    //response.EnsureSuccessStatusCode();
+                    if (response.StatusCode == HttpStatusCode.Unauthorized)
+                    {
+                        await RefreshSession();
+                        response = await this.client.PutAsync(url, data);
+                    }
                     string responseBody = await response.Content.ReadAsStringAsync();
-                    JObject bodyData = JObject.Parse(responseBody);
-                    return bodyData;
+                    bodyData = JObject.Parse(responseBody);
                 }
                 catch (HttpRequestException exception)
                 {
                     Console.WriteLine("\nException Caught!");
                     Console.WriteLine("Message :{0} ", exception.Message);
-                    MessageService.ShowInfo(exception.Message);
-                    return null;
+                    throw;
                 }
             }
             else
@@ -138,25 +152,40 @@ namespace ProtonSecrets.StorageProvider {
                 try
                 {
                     HttpResponseMessage response = await this.client.GetAsync(url);
-                    //response.EnsureSuccessStatusCode();
+                    if (response.StatusCode == HttpStatusCode.Unauthorized)
+                    {
+                        await RefreshSession();
+                        response = await this.client.GetAsync(url);
+                    }
                     string responseBody = await response.Content.ReadAsStringAsync();
-                    JObject bodyData = JObject.Parse(responseBody);
-                    return bodyData;
+                    bodyData = JObject.Parse(responseBody);
                 }
                 catch (HttpRequestException exception)
                 {
                     Console.WriteLine("\nException Caught!");
                     Console.WriteLine("Message :{0} ", exception.Message);
-                    MessageService.ShowInfo(exception.Message);
-                    return null;
+                    throw;
                 }
             }
+            if ((int)bodyData["Code"] != 1000)
+            {
+                string exceptionMessage = "API response contains an error (" + (string)bodyData["Code"] + ") : " + (string)bodyData["Error"];
+                throw new Exception(exceptionMessage);
+            }
+            return bodyData;
         }
 
         public async Task<string> ComputeKeyPassword(string password)
         {
             //Get user info
-            JObject userInfo = await ProtonRequest("GET", "https://api.protonmail.ch/users");
+            JObject userInfo;
+            try
+            {
+                userInfo = await ProtonRequest("GET", "https://api.protonmail.ch/users");
+            }catch(Exception exception)
+            {
+                throw new Exception("Unable to compute keyPassword: " + exception.Message);
+            }
             JArray userKeys = (JArray)userInfo["User"]["Keys"];
             string userKeyID = "";
             for (int i = 0; i < userKeys.Count(); i++)
@@ -167,7 +196,14 @@ namespace ProtonSecrets.StorageProvider {
                 }
             }
             //Get salts info
-            JObject saltsInfo = await ProtonRequest("GET", "https://api.protonmail.ch/keys/salts");
+            JObject saltsInfo;
+            try
+            {
+                saltsInfo = await ProtonRequest("GET", "https://api.protonmail.ch/keys/salts");
+            }catch(Exception exception)
+            {
+                throw new Exception("Unable to compute keyPassword: " + exception.Message);
+            }
             JArray userKeySalt = (JArray)saltsInfo["KeySalts"];
             string keySalt = "";
             for (int i = 0; i < userKeySalt.Count(); i++)
@@ -190,7 +226,14 @@ namespace ProtonSecrets.StorageProvider {
             authPayload["Username"] = username;
             string json = JsonConvert.SerializeObject(authPayload, Formatting.Indented);
             StringContent data = new StringContent(json, Encoding.UTF8, "application/json");
-            JObject authInfo = await ProtonRequest("POST", "https://api.protonmail.ch/auth/info", data);
+            JObject authInfo;
+            try
+            {
+                authInfo = await ProtonRequest("POST", "https://api.protonmail.ch/auth/info", data);
+            }catch(Exception exception)
+            {
+                throw new Exception("Unable to authenticate user: " + exception.Message);
+            }
             //getSrp
             Dictionary<string,string> authData = await SRP.GetSrp(authInfo, username, password);
             //CallAndValidate
@@ -201,7 +244,15 @@ namespace ProtonSecrets.StorageProvider {
             SRPAuth["SRPSession"] = (string)authInfo["SRPSession"];
             string SRPAuthJson = JsonConvert.SerializeObject(SRPAuth);
             StringContent SRPAuthData = new StringContent(SRPAuthJson, Encoding.UTF8, "application/json");
-            JObject srpResult = await ProtonRequest("POST", "https://api.protonmail.ch/auth", SRPAuthData);
+            JObject srpResult;
+            try
+            {
+                srpResult = await ProtonRequest("POST", "https://api.protonmail.ch/auth", SRPAuthData);
+            }
+            catch (Exception exception)
+            {
+                throw new Exception("Unable to authenticate user: " + exception.Message);
+            }
             if (authData["expectedServerProof"] == (string)srpResult["ServerProof"])
             {
                 //add headers for later requests
@@ -209,17 +260,15 @@ namespace ProtonSecrets.StorageProvider {
                 this.client.DefaultRequestHeaders.Add("x-pm-uid", (string)srpResult["UID"]);
                 this.client.DefaultRequestHeaders.Remove("Authorization");
                 this.client.DefaultRequestHeaders.Add("Authorization", "Bearer " + (string)srpResult["AccessToken"]);
+                this.RefreshToken = (string)srpResult["RefreshToken"];
+                this.AccessToken = (string)srpResult["AccessToken"];
                 if (((string)srpResult["Scope"]).Split(' ').Contains("twofactor"))
                 {
-                    return new AccountConfiguration("", username, (string)srpResult["UID"], (string)srpResult["AccessToken"], true);
+                    return new AccountConfiguration("", username, (string)srpResult["UID"], (string)srpResult["AccessToken"], (string)srpResult["RefreshToken"], true);
                 }
-                return new AccountConfiguration("", username, (string)srpResult["UID"], (string)srpResult["AccessToken"], false);
+                return new AccountConfiguration("", username, (string)srpResult["UID"], (string)srpResult["AccessToken"], (string)srpResult["RefreshToken"], false);
             }
-            else
-            {
-                MessageService.ShowInfo("Unable to login");
-                return null;
-            }
+            throw new Exception("Unable to authenticate user: An unexpected error occured");
         }
 
         public async Task Validate2fa(string twofa)
@@ -228,42 +277,112 @@ namespace ProtonSecrets.StorageProvider {
             twoFAAuth["TwoFactorCode"] = twofa;
             string twoFAAuthJson = JsonConvert.SerializeObject(twoFAAuth, Formatting.Indented);
             StringContent twoFAAuthData = new StringContent(twoFAAuthJson, Encoding.UTF8, "application/json");
-            JObject twoFAAuthInfo = await ProtonRequest("POST", "https://api.protonmail.ch/auth/2fa", twoFAAuthData);
-            //check for errors with the 2fa
-            MessageService.ShowInfo("2fa validated");
+            try
+            {
+                JObject twoFAAuthInfo = await ProtonRequest("POST", "https://api.protonmail.ch/auth/2fa", twoFAAuthData);
+            }
+            catch (Exception exception)
+            {
+                throw new Exception("Unable to validate 2fa: " + exception.Message);
+            }
+        }
+
+        public async Task RefreshSession()
+        {
+            Dictionary<string, string> refreshData = new Dictionary<string, string>();
+            refreshData["ResponseType"] = "token";
+            refreshData["GrantType"] = "refresh_token";
+            refreshData["RefreshToken"] = this.RefreshToken;
+            refreshData["RedirectURI"] = "http://protonmail.ch";
+            string refreshDataJson = JsonConvert.SerializeObject(refreshData);
+            StringContent data = new StringContent(refreshDataJson, Encoding.UTF8, "application/json");
+            JObject refreshResult;
+            try
+            {
+                refreshResult = await ProtonRequest("POST", "https://api.protonmail.ch/auth/refresh", data);
+            }
+            catch (Exception exception)
+            {
+                throw new Exception("Unable to refresh session: " + exception.Message);
+                //if unable to refresh tokens it is possible the account file is corrupted in which case
+                //we should prompt the user to login once again
+            }
+            this.client.DefaultRequestHeaders.Remove("Authorization");
+            this.client.DefaultRequestHeaders.Add("Authorization", "Bearer " + (string)refreshResult["AccessToken"]);
+            this.RefreshToken = (string)refreshResult["RefreshToken"];
+            this.AccessToken = (string)refreshResult["AccessToken"];
         }
 
         public async Task Logout()
         {
+            JObject bodyData;
             try
             {
                 HttpResponseMessage response = await client.DeleteAsync("https://api.protonmail.ch/auth");
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    await RefreshSession();
+                    response = await client.DeleteAsync("https://api.protonmail.ch/auth");
+                }
                 string responseBody = await response.Content.ReadAsStringAsync();
+                bodyData = JObject.Parse(responseBody);
             }
             catch (HttpRequestException exception)
             {
                 Console.WriteLine("\nException Caught!");
                 Console.WriteLine("Message :{0} ", exception.Message);
-                MessageService.ShowInfo(exception.Message);
+                throw new Exception("Unable to logout: " + exception.Message);
             }
+            if ((int)bodyData["Code"] != 1000)
+            {
+                string exceptionMessage = "API response contains an error (" + (string)bodyData["Code"] + ") : " + (string)bodyData["Error"];
+                throw new Exception("Unable to logout: " + exceptionMessage);
+            }
+            this.client.DefaultRequestHeaders.Remove("x-pm-uid");
+            this.client.DefaultRequestHeaders.Remove("Authorization");
+            this.RefreshToken = "";
+            this.AccessToken = "";
         }
 
         public async Task<IEnumerable<ProtonDriveItem>> GetRootChildren()
         {
-            JObject linkInfo = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/links/" + this.shareInfo.linkID);
+            JObject linkInfo;
+            try
+            {
+                linkInfo = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/links/" + this.shareInfo.linkID);
+            }
+            catch(Exception exception)
+            {
+                throw new Exception("Unable to fetch root folder content: " + exception.Message);
+            }
             string rootNodePrivateKey = (string)linkInfo["Link"]["NodeKey"];
             string rootNodePassphrase = (string)linkInfo["Link"]["NodePassphrase"];
             //Decrypt root nodePassphrase
             string decryptedRootNodePassphrase = await this.shareInfo.privateKey.DecryptArmoredStringAsync(rootNodePassphrase);
             EncryptionKeys nodeKeys = new EncryptionKeys(rootNodePrivateKey, decryptedRootNodePassphrase);
             PGP nodeKeys_pgp = new PGP(nodeKeys);
-            return await GetChildren(nodeKeys_pgp, this.shareInfo.linkID, this.shareInfo.id);
+            try
+            {
+                return await GetChildren(nodeKeys_pgp, this.shareInfo.linkID, this.shareInfo.id);
+            }
+            catch(Exception exception)
+            {
+                throw new Exception("Unable to fetch root folder content: " + exception.Message);
+            }
         }
         //returns a list of ProtonDriveItems that are the children of Link Id
         public async Task<IEnumerable<ProtonDriveItem>> GetChildren(PGP parentKeys, string linkId, string shareId)
         {
             List<ProtonDriveItem> children = new List<ProtonDriveItem>();
-            JObject childrenLinks = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + shareId + "/folders/" + linkId + "/children");
+            JObject childrenLinks;
+            try
+            {
+                childrenLinks = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + shareId + "/folders/" + linkId + "/children");
+            }
+            catch(Exception exception)
+            {
+                throw new Exception("Unable to fetch folder contents: " + exception.Message);
+            }
             for (int i = 0; i < childrenLinks["Links"].Count(); i++)
             {
                 string nodePrivateKey = (string)childrenLinks["Links"][i]["NodeKey"];
@@ -301,47 +420,66 @@ namespace ProtonSecrets.StorageProvider {
 
         public async Task<Stream> Download(string path)
         {
-            string[] folders = path.Split(new string[] { "/" }, StringSplitOptions.RemoveEmptyEntries);
-            ProtonLink nextLink = await ProtonLink.Initialize(this.shareInfo.id, this.shareInfo.linkID, this.shareInfo.privateKey, this.client);
-            //recursively traverse the folders until we reach our file
-            for (int i = 0; i < folders.Length; i++)
+            try
             {
-                nextLink = await ProtonLink.GetLink(folders[i], nextLink, this.shareInfo.id, client);
+                string[] folders = path.Split(new string[] { "/" }, StringSplitOptions.RemoveEmptyEntries);
+                ProtonLink nextLink = await ProtonLink.Initialize(this.shareInfo.id, this.shareInfo.linkID, this.shareInfo.privateKey, this);
+                //recursively traverse the folders until we reach our file
+                for (int i = 0; i < folders.Length; i++)
+                {
+                    nextLink = await ProtonLink.GetLink(folders[i], nextLink, this.shareInfo.id, this);
+                }
+                return await DownloadBlockData(nextLink);
             }
-            return await DownloadBlockData(nextLink);
+            catch(Exception exception)
+            {
+                throw new Exception("Unable to download file: " + exception.Message);
+            }
         }
 
         //Downloads the block data for a given link
         private async Task<Stream> DownloadBlockData(ProtonLink link)
         {
-            JObject linkData = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/links/" + link.id);
-            //decode block session key
-            string contentKeyPacket = (string)linkData["Link"]["FileProperties"]["ContentKeyPacket"];
-            byte[] contentKeyPacket_byte = Convert.FromBase64String(contentKeyPacket);
-            // fetch info for specific revision
-            string targetLinkId = (string)linkData["Link"]["LinkID"];
-            string linkRevisionId = (string)linkData["Link"]["FileProperties"]["ActiveRevision"]["ID"];
-            JObject linkRevisionInfo = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/files/" + targetLinkId + "/revisions/" + linkRevisionId);
-            JArray blocks = (JArray)linkRevisionInfo["Revision"]["Blocks"];
-            byte[] keepassDB_bytes = new byte[] { };
-            for (int i = 0; i < blocks.Count(); i++)
+            try
             {
-                string revisionBlockURL = (string)blocks[i]["URL"];
-                // fetch and decrypt unique block
-                HttpResponseMessage blockResponse = await client.GetAsync(revisionBlockURL);
-                Stream encData = await blockResponse.Content.ReadAsStreamAsync();
-                byte[] block;
-                using (var memoryStream = new MemoryStream())
+                JObject linkData = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/links/" + link.id);
+                //decode block session key
+                string contentKeyPacket = (string)linkData["Link"]["FileProperties"]["ContentKeyPacket"];
+                byte[] contentKeyPacket_byte = Convert.FromBase64String(contentKeyPacket);
+                // fetch info for specific revision
+                string targetLinkId = (string)linkData["Link"]["LinkID"];
+                string linkRevisionId = (string)linkData["Link"]["FileProperties"]["ActiveRevision"]["ID"];
+                JObject linkRevisionInfo = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/files/" + targetLinkId + "/revisions/" + linkRevisionId);
+                JArray blocks = (JArray)linkRevisionInfo["Revision"]["Blocks"];
+                byte[] keepassDB_bytes = new byte[] { };
+                for (int i = 0; i < blocks.Count(); i++)
                 {
-                    encData.CopyTo(memoryStream);
-                    block = memoryStream.ToArray();
+                    string revisionBlockURL = (string)blocks[i]["URL"];
+                    // fetch and decrypt unique block
+                    HttpResponseMessage blockResponse = await client.GetAsync(revisionBlockURL);
+                    if (blockResponse.StatusCode == HttpStatusCode.Unauthorized)
+                    {
+                        await RefreshSession();
+                        blockResponse = await client.GetAsync(revisionBlockURL);
+                    }
+                    Stream encData = await blockResponse.Content.ReadAsStreamAsync();
+                    byte[] block;
+                    using (var memoryStream = new MemoryStream())
+                    {
+                        encData.CopyTo(memoryStream);
+                        block = memoryStream.ToArray();
+                    }
+                    MemoryStream outputStream = new MemoryStream();
+                    await link.privateKey.DecryptStreamAsync(new MemoryStream(Util.Concat(contentKeyPacket_byte, block)), outputStream);
+                    //write this portion of the stream to our overall stream
+                    keepassDB_bytes = Util.Concat(keepassDB_bytes, outputStream.ToArray());
                 }
-                MemoryStream outputStream = new MemoryStream();
-                await link.privateKey.DecryptStreamAsync(new MemoryStream(Util.Concat(contentKeyPacket_byte, block)), outputStream);
-                //write this portion of the stream to our overall stream
-                keepassDB_bytes = Util.Concat(keepassDB_bytes, outputStream.ToArray());
+                return new MemoryStream(keepassDB_bytes);
             }
-            return new MemoryStream(keepassDB_bytes);
+            catch(Exception exception)
+            {
+                throw new Exception("Unable to download file contents: " + exception.Message);
+            }
         }
 
         public async Task Upload(Stream database, string path)
@@ -351,23 +489,43 @@ namespace ProtonSecrets.StorageProvider {
             string[] folders = path.Split(new string[] { "/" }, StringSplitOptions.RemoveEmptyEntries);
             string filename = folders[folders.Length - 1];
             //initialize the root link
-            ProtonLink rootLink = await ProtonLink.Initialize(this.shareInfo.id, this.shareInfo.linkID, this.shareInfo.privateKey, this.client);
+            ProtonLink rootLink;
+            try
+            {
+                rootLink = await ProtonLink.Initialize(this.shareInfo.id, this.shareInfo.linkID, this.shareInfo.privateKey, this);
+            }
+            catch(Exception exception)
+            {
+                throw new Exception("Unable to upload file: " + exception.Message);
+            }
             //initialize all folder links part of the path
             ProtonLink lastParentLink = rootLink;
             for (int i = 0; i < folders.Length - 1; i++)
             {
-                ProtonLink nextLink = await ProtonLink.GetLink(folders[i], lastParentLink, this.shareInfo.id, this.client);
-                lastParentLink = nextLink;
+                try
+                {
+                    ProtonLink nextLink = await ProtonLink.GetLink(folders[i], lastParentLink, this.shareInfo.id, this);
+                    lastParentLink = nextLink;
+                }catch(Exception exception)
+                {
+                    throw new Exception("failed to upload file: " + exception.Message);
+                }
             }
             //check what is the first available hash and see if it conflicts with our filename
             string filenameHash = Crypto.ComputeFilenameHash(filename, lastParentLink.nodeHashKey);
-            if(await ProtonLink.CheckConflictingFilenames(lastParentLink, filenameHash, this.shareInfo.id, this.client))
+            try
             {
-                await UpdateFile(database, filename, lastParentLink);
-            }
-            else
+                if (await ProtonLink.CheckConflictingFilenames(lastParentLink, filenameHash, this.shareInfo.id, this))
+                {
+                    await UpdateFile(database, filename, lastParentLink);
+                }
+                else
+                {
+                    await CreateFile(database, filename, lastParentLink);
+                }
+            }catch(Exception exception)
             {
-                await CreateFile(database, filename, lastParentLink);
+                throw new Exception("Error occured during file upload: " + exception.Message);
             }
 
         }
@@ -379,14 +537,14 @@ namespace ProtonSecrets.StorageProvider {
             byte[] value = new byte[32];
             rand.NextBytes(value);
             string passphrase = Convert.ToBase64String(value);
-            File.WriteAllText("generatedCryptoMaterial/newNodeKeyPassphrase", passphrase);
+            //File.WriteAllText("generatedCryptoMaterial/newNodeKeyPassphrase", passphrase);
 
             // create new node key
             PgpSecretKeyRing newNodeKeyRing = Crypto.GenerateKey(passphrase.ToCharArray());
 
             // get armored version of new node key
             string newNodeArmoredKeyStr = Crypto.GetArmoredKey(newNodeKeyRing);
-            File.WriteAllText("generatedCryptoMaterial/newNodeKey", newNodeArmoredKeyStr);
+            //File.WriteAllText("generatedCryptoMaterial/newNodeKey", newNodeArmoredKeyStr);
 
             //Isolate signing/encryption keys for later use
             PgpSecretKey nodeEncPrivKey = Crypto.GetEncryptionKey(newNodeKeyRing, passphrase);
@@ -478,14 +636,20 @@ namespace ProtonSecrets.StorageProvider {
                             {"NodePassphrase", encryptedNodePassphrase },
                             {"NodePassphraseSignature", armoredPassphraseSignature },
                             {"ParentLinkID", parent.id},
-                            {"SignatureAddress", myemail},
+                            {"SignatureAddress", this.addressInfo.email},
                             {"ClientUID", clientUID }
                         };
                     string createFileBodyJSON = JsonConvert.SerializeObject(createFileBody);
                     StringContent data = new StringContent(createFileBodyJSON, Encoding.UTF8, "application/json");
-                    JObject createFileResponse = await ProtonRequest("POST", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/files", data);
-                    createdFileID = (string)createFileResponse["File"]["ID"];
-                    createdFileRevisionID = (string)createFileResponse["File"]["RevisionID"];
+                    try
+                    {
+                        JObject createFileResponse = await ProtonRequest("POST", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/files", data);
+                        createdFileID = (string)createFileResponse["File"]["ID"];
+                        createdFileRevisionID = (string)createFileResponse["File"]["RevisionID"];
+                    }catch(Exception exception)
+                    {
+                        throw new Exception("Unable to create file in Drive: " + exception.Message);
+                    }
                 }
                 //only keep the encrypted data part of the PGP message
                 int encDataLength = encDataByte.Length - contentKeyPacket_byte.Length;
@@ -536,8 +700,15 @@ namespace ProtonSecrets.StorageProvider {
                     };
                 string createBlockBodyJSON = JsonConvert.SerializeObject(createBlocksBody);
                 StringContent createBlockRequestData = new StringContent(createBlockBodyJSON, Encoding.UTF8, "application/json");
-                JObject createBlockResponse = await ProtonRequest("POST", "https://api.protonmail.ch/drive/blocks", createBlockRequestData);
-
+                JObject createBlockResponse;
+                try
+                {
+                    createBlockResponse = await ProtonRequest("POST", "https://api.protonmail.ch/drive/blocks", createBlockRequestData);
+                }
+                catch(Exception exception)
+                {
+                    throw new Exception("Unable to create file in Drive: " + exception.Message);
+                }
                 //upload the block to the backend URL
                 string uploadURL = (string)createBlockResponse["UploadLinks"][0]["BareURL"];
                 string uploadToken = (string)createBlockResponse["UploadLinks"][0]["Token"];
@@ -551,8 +722,20 @@ namespace ProtonSecrets.StorageProvider {
                 request.Content = content;
                 request.Headers.Add("pm-storage-token", uploadToken);
                 var clientX = new HttpClient();
-                HttpResponseMessage response = await clientX.SendAsync(request);
-
+                try
+                {
+                    HttpResponseMessage response = await clientX.SendAsync(request);
+                    if (response.StatusCode == HttpStatusCode.Unauthorized)
+                    {
+                        await RefreshSession();
+                        response = await clientX.SendAsync(request);
+                    }
+                    //also check response is valid
+                }
+                catch (HttpRequestException exception)
+                {
+                    throw new Exception("Unable to create file in drive: " + exception.Message);
+                }
                 //build list of all index and upload tokens
                 Dictionary<string, dynamic> nextBlock = new Dictionary<string, dynamic>()
                     {
@@ -577,17 +760,25 @@ namespace ProtonSecrets.StorageProvider {
                         { "State", 1 },
                         { "BlockList", blockList.ToArray()},
                         { "ManifestSignature", armoredSignedHash },
-                        { "SignatureAddress", myemail },
+                        { "SignatureAddress", this.addressInfo.email },
                         { "XAttr", encryptedXAttr }
                     };
             string updateFileRevisionBodyJSON = JsonConvert.SerializeObject(updateFileRevisionBody);
             StringContent updateFileRevisionRequestData = new StringContent(updateFileRevisionBodyJSON, Encoding.UTF8, "application/json");
-            JObject updateFileRevisionResponse = await ProtonRequest("PUT", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/files/" + createdFileID + "/revisions/" + createdFileRevisionID, updateFileRevisionRequestData);
+            try
+            {
+                JObject updateFileRevisionResponse = await ProtonRequest("PUT", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/files/" + createdFileID + "/revisions/" + createdFileRevisionID, updateFileRevisionRequestData);
+            }
+            catch (Exception exception)
+            {
+                throw new Exception("Unable to create file in drive: " + exception.Message);
+            }
+            
         }
 
         private async Task UpdateFile(Stream database, string filename, ProtonLink lastParentLink)
         {
-            ProtonLink link = await ProtonLink.GetLink(filename, lastParentLink, this.shareInfo.id, client);
+            ProtonLink link = await ProtonLink.GetLink(filename, lastParentLink, this.shareInfo.id, this);
             string clientUID = Util.GenerateProtonWebUID();
 
             //create new file revision
@@ -598,7 +789,15 @@ namespace ProtonSecrets.StorageProvider {
                     };
             string createFileRevisionBodyJSON = JsonConvert.SerializeObject(createFileRevisionBody);
             StringContent createFileRevisionRequestData = new StringContent(createFileRevisionBodyJSON, Encoding.UTF8, "application/json");
-            JObject createFileRevisionResponse = await ProtonRequest("POST", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/files/" + link.id + "/revisions", createFileRevisionRequestData);
+            JObject createFileRevisionResponse;
+            try
+            {
+                createFileRevisionResponse = await ProtonRequest("POST", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/files/" + link.id + "/revisions", createFileRevisionRequestData);
+            }
+            catch (Exception exception)
+            {
+                throw new Exception("Unable to update file in drive: " + exception.Message);
+            }
             string createdFileRevisionID = (string)createFileRevisionResponse["Revision"]["ID"];
 
             //Isolated  signing/encryption keys for later use
@@ -684,8 +883,15 @@ namespace ProtonSecrets.StorageProvider {
                     };
                 string createBlockBodyJSON = JsonConvert.SerializeObject(createBlocksBody);
                 StringContent createBlockRequestData = new StringContent(createBlockBodyJSON, Encoding.UTF8, "application/json");
-                JObject createBlockResponse = await ProtonRequest("POST", "https://api.protonmail.ch/drive/blocks", createBlockRequestData);
-
+                JObject createBlockResponse;
+                try
+                {
+                    createBlockResponse = await ProtonRequest("POST", "https://api.protonmail.ch/drive/blocks", createBlockRequestData);
+                }
+                catch (Exception exception)
+                {
+                    throw new Exception("Unable to update file in drive: " + exception.Message);
+                }
                 //upload the block to the backend URL
                 string uploadURL = (string)createBlockResponse["UploadLinks"][0]["BareURL"];
                 string uploadToken = (string)createBlockResponse["UploadLinks"][0]["Token"];
@@ -699,7 +905,14 @@ namespace ProtonSecrets.StorageProvider {
                 request.Content = content;
                 request.Headers.Add("pm-storage-token", uploadToken);
                 var clientX = new HttpClient();
-                HttpResponseMessage response = await clientX.SendAsync(request);
+                try
+                {
+                    HttpResponseMessage response = await clientX.SendAsync(request);
+                    //check response is ok
+                }catch(HttpRequestException exception)
+                {
+                    throw new Exception("Unable to update file in drive: " + exception.Message);
+                }
 
                 //build list of all index and upload tokens
                 Dictionary<string, dynamic> nextBlock = new Dictionary<string, dynamic>()
@@ -728,12 +941,19 @@ namespace ProtonSecrets.StorageProvider {
                         { "State", 1 },
                         { "BlockList", blockList.ToArray()},
                         { "ManifestSignature", armoredSignedHash },
-                        { "SignatureAddress", myemail },
+                        { "SignatureAddress", this.addressInfo.email },
                         { "XAttr", encryptedXAttr }
                     };
             string updateFileRevisionBodyJSON = JsonConvert.SerializeObject(updateFileRevisionBody);
             StringContent updateFileRevisionRequestData = new StringContent(updateFileRevisionBodyJSON, Encoding.UTF8, "application/json");
-            JObject updateFileRevisionResponse = await ProtonRequest("PUT", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/files/" + link.id + "/revisions/" + createdFileRevisionID, updateFileRevisionRequestData);
+            try
+            {
+                JObject updateFileRevisionResponse = await ProtonRequest("PUT", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/files/" + link.id + "/revisions/" + createdFileRevisionID, updateFileRevisionRequestData);
+            }
+            catch (Exception exception)
+            {
+                throw new Exception("Unable to update file in drive: " + exception.Message);
+            }
         }
     }
 }

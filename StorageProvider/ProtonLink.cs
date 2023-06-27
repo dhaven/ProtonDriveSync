@@ -38,22 +38,16 @@ namespace ProtonSecrets.StorageProvider
             this.activeFileRevision = activeFileRevision;
         }
 
-        public async static Task<ProtonLink> Initialize(string shareId, string linkId, PGP parentPrivateKey, HttpClient client)
+        public async static Task<ProtonLink> Initialize(string shareId, string linkId, PGP parentPrivateKey, ProtonAPI api)
         {
-            JObject linkInfo = null;
+            JObject linkInfo;
             try
             {
-                HttpResponseMessage response = await client.GetAsync("https://api.protonmail.ch/drive/shares/" + shareId + "/links/" + linkId);
-                //response.EnsureSuccessStatusCode();
-                string responseBody = await response.Content.ReadAsStringAsync();
-                JObject bodyData = JObject.Parse(responseBody);
-                linkInfo = bodyData;
+                linkInfo = await api.ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + shareId + "/links/" + linkId);
             }
-            catch (HttpRequestException exception)
+            catch (Exception exception)
             {
-                Console.WriteLine("\nException Caught!");
-                Console.WriteLine("Message :{0} ", exception.Message);
-                MessageService.ShowInfo(exception.Message);
+                throw new Exception("Unable to initialize link info: " + exception.Message);
             }
             string nodePrivateKey = (string)linkInfo["Link"]["NodeKey"];
             string nodePassphrase = (string)linkInfo["Link"]["NodePassphrase"];
@@ -111,23 +105,17 @@ namespace ProtonSecrets.StorageProvider
         }
 
         //Get an instance of a link at any level of the hierarchy given it's name
-        public async static Task<ProtonLink> GetLink(string name, ProtonLink parent, string shareId, HttpClient client)
+        public async static Task<ProtonLink> GetLink(string name, ProtonLink parent, string shareId, ProtonAPI api)
         {
             //Get children of root folder
-            JObject folderChildrenLinksInfo = null;
+            JObject folderChildrenLinksInfo;
             try
             {
-                HttpResponseMessage response = await client.GetAsync("https://api.protonmail.ch/drive/shares/" + shareId + "/folders/" + parent.id + "/children");
-                //response.EnsureSuccessStatusCode();
-                string responseBody = await response.Content.ReadAsStringAsync();
-                JObject bodyData = JObject.Parse(responseBody);
-                folderChildrenLinksInfo = bodyData;
+                folderChildrenLinksInfo = await api.ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + shareId + "/folders/" + parent.id + "/children");
             }
-            catch (HttpRequestException exception)
+            catch (Exception exception)
             {
-                Console.WriteLine("\nException Caught!");
-                Console.WriteLine("Message :{0} ", exception.Message);
-                MessageService.ShowInfo(exception.Message);
+                throw new Exception("Unable to fetch folder content: " + exception.Message);
             }
             // loop through links until we find the folder
             for (int i = 0; i < folderChildrenLinksInfo["Links"].Count(); i++)
@@ -137,14 +125,14 @@ namespace ProtonSecrets.StorageProvider
                 string decryptedLinkName = await parent.privateKey.DecryptArmoredStringAsync(linkName);
                 if (decryptedLinkName == name)
                 {
-                    return await ProtonLink.Initialize(shareId, (string)folderChildrenLinksInfo["Links"][i]["LinkID"], parent.privateKey, client);
+                    return await ProtonLink.Initialize(shareId, (string)folderChildrenLinksInfo["Links"][i]["LinkID"], parent.privateKey, api);
                 }
             }
             return null;
         }
 
         //return true if there is a conflict between filenames. False otherwise
-        public static async Task<bool> CheckConflictingFilenames(ProtonLink parent, string filenameHash, string shareId, HttpClient client)
+        public static async Task<bool> CheckConflictingFilenames(ProtonLink parent, string filenameHash, string shareId, ProtonAPI api)
         {
             List<string> hashes = new List<string> { };
             hashes.Add(filenameHash);
@@ -156,19 +144,15 @@ namespace ProtonSecrets.StorageProvider
             StringContent data = new StringContent(requestBodyJSON, Encoding.UTF8, "application/json");
             try
             {
-                HttpResponseMessage response = await client.PostAsync("https://api.protonmail.ch/drive/shares/" + shareId + "/links/" + parent.id + "/checkAvailableHashes", data);
-                string responseBody = await response.Content.ReadAsStringAsync();
-                JObject bodyData = JObject.Parse(responseBody);
+                JObject bodyData = await api.ProtonRequest("POST", "https://api.protonmail.ch/drive/shares/" + shareId + "/links/" + parent.id + "/checkAvailableHashes", data);
                 if (bodyData["AvailableHashes"].Count() == 0)
                 {
                     return true;
                 }
             }
-            catch (HttpRequestException exception)
+            catch (Exception exception)
             {
-                Console.WriteLine("\nException Caught!");
-                Console.WriteLine("Message :{0} ", exception.Message);
-                MessageService.ShowInfo(exception.Message);
+                throw new Exception("Unable to check for conflicting filenames" +  exception.Message);
             }
             return false;
         }
