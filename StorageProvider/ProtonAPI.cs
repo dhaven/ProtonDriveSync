@@ -20,6 +20,7 @@ using Org.BouncyCastle.Bcpg.OpenPgp;
 using Org.BouncyCastle.Bcpg;
 using System.Security.Cryptography;
 using System.Net;
+using Org.BouncyCastle.Utilities.Zlib;
 
 namespace ProtonSecrets.StorageProvider {
 
@@ -63,6 +64,7 @@ namespace ProtonSecrets.StorageProvider {
             this.client.DefaultRequestHeaders.Remove("Authorization");
             this.client.DefaultRequestHeaders.Add("Authorization", "Bearer " + accessToken);
             this.RefreshToken = refreshToken;
+            this.AccessToken = accessToken;
         }
 
         public async Task InitUserKeys(string email, string keyPassword)
@@ -537,14 +539,14 @@ namespace ProtonSecrets.StorageProvider {
             byte[] value = new byte[32];
             rand.NextBytes(value);
             string passphrase = Convert.ToBase64String(value);
-            //File.WriteAllText("generatedCryptoMaterial/newNodeKeyPassphrase", passphrase);
+            File.WriteAllText("generatedCryptoMaterial/newNodeKeyPassphrase", passphrase);
 
             // create new node key
             PgpSecretKeyRing newNodeKeyRing = Crypto.GenerateKey(passphrase.ToCharArray());
 
             // get armored version of new node key
             string newNodeArmoredKeyStr = Crypto.GetArmoredKey(newNodeKeyRing);
-            //File.WriteAllText("generatedCryptoMaterial/newNodeKey", newNodeArmoredKeyStr);
+            File.WriteAllText("generatedCryptoMaterial/newNodeKey", newNodeArmoredKeyStr);
 
             //Isolate signing/encryption keys for later use
             PgpSecretKey nodeEncPrivKey = Crypto.GetEncryptionKey(newNodeKeyRing, passphrase);
@@ -571,6 +573,8 @@ namespace ProtonSecrets.StorageProvider {
             MemoryStream nodePassphraseSignatureStr = new MemoryStream();
             Crypto.Sign(Encoding.UTF8.GetBytes(passphrase), nodePassphraseSignatureStr, addressInfo.privateKey.EncryptionKeys.SecretKey, addressInfo.passphrase.ToCharArray(), true);
             string armoredPassphraseSignature = Encoding.UTF8.GetString(nodePassphraseSignatureStr.ToArray());
+            File.WriteAllText("generatedCryptoMaterial/encryptedNodePassphrase", encryptedNodePassphrase);
+            File.WriteAllText("generatedCryptoMaterial/armoredSignedPassphrase", armoredPassphraseSignature);
 
             //generate session key
             SecureRandom random = new SecureRandom();
@@ -578,12 +582,15 @@ namespace ProtonSecrets.StorageProvider {
             //sign the key using new node key
             MemoryStream encodedSecretKey = new MemoryStream();
             Crypto.Sign(key.GetKey(), encodedSecretKey, nodeSignPrivKey, passphrase.ToCharArray(), true);
+            File.WriteAllText("generatedCryptoMaterial/contentKeyPacketSignature", Encoding.UTF8.GetString(encodedSecretKey.ToArray()));
+            File.WriteAllText("generatedCryptoMaterial/sessionKey", Convert.ToBase64String(key.GetKey()));
 
             //encrypt filename and compute hash of filename
             //create clientUID
             string filenameHash = Crypto.ComputeFilenameHash(filename, parent.nodeHashKey);
             string encryptedFilename = await Crypto.EncryptArmoredStringAndSignAsync(filename, parentNodeEncPrivKey.PublicKey, null, addressInfo.privateKey.EncryptionKeys.SecretKey, addressInfo.passphrase.ToCharArray());
             string clientUID = Util.GenerateProtonWebUID();
+            File.WriteAllText("generatedCryptoMaterial/encryptedFilename", encryptedFilename);
 
             //try encrypting our file (we don't want the public key encrypted session key to be part of this)
             PgpEncryptedDataGenerator pk = new PgpEncryptedDataGenerator(SymmetricKeyAlgorithmTag.Aes128, true, new SecureRandom());
@@ -654,17 +661,25 @@ namespace ProtonSecrets.StorageProvider {
                 //only keep the encrypted data part of the PGP message
                 int encDataLength = encDataByte.Length - contentKeyPacket_byte.Length;
                 encDataByte = Util.TakeSuffix(encDataByte, encDataLength);
+                File.WriteAllText("generatedCryptoMaterial/encryptedData", Convert.ToBase64String(encDataByte));
 
                 //Create signature of block data
-                //byte[] helloWorldBytes = File.ReadAllBytes("helloworld");
                 MemoryStream blockDataSignatureStr = new MemoryStream();
                 Crypto.Sign(blockBytes, blockDataSignatureStr, addressInfo.privateKey.EncryptionKeys.SecretKey, addressInfo.passphrase.ToCharArray(), false);
                 //Encrypt signature of block data
-                string armoredEncryptedBlockSignature = await Crypto.EncryptArmoredStringAndSignAsync(Encoding.UTF8.GetString(blockDataSignatureStr.ToArray()), nodeEncPrivKey.PublicKey, key, nodeSignPrivKey, passphrase.ToCharArray());
+                string armoredEncryptedBlockSignature = "";
+                using (Stream armoredEncryptedBlockSignatureStr = new MemoryStream())
+                {
+                    await Crypto.EncryptStreamAndSignAsync(new MemoryStream(blockDataSignatureStr.ToArray()), armoredEncryptedBlockSignatureStr, nodeEncPrivKey.PublicKey, key, nodeSignPrivKey, passphrase.ToCharArray());
+                    armoredEncryptedBlockSignatureStr.Seek(0, SeekOrigin.Begin);
+                    armoredEncryptedBlockSignature = await armoredEncryptedBlockSignatureStr.GetStringAsync();
+                    File.WriteAllText("generatedCryptoMaterial/armoredEncryptedBlockSignature", armoredEncryptedBlockSignature);
+                }
 
                 //compute hash over the encrypted block data
                 SHA256 mySHA256 = SHA256.Create();
                 byte[] hashedEncryptedBlockData = mySHA256.ComputeHash(encDataByte);
+                File.WriteAllText("generatedCryptoMaterial/hashedEncryptedBlockData", Encoding.UTF8.GetString(hashedEncryptedBlockData));
 
                 //store the complete string of encrypted data for later use
                 if (index == 0)

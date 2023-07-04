@@ -34,7 +34,7 @@ namespace ProtonSecrets
 
             //Load the configuration
             _configService = new ConfigurationService();
-            _configService.Load();
+            _configService.LoadAccountsFromWindowsCredentialManager();
 
             //Initialize the Proton provider
             try
@@ -202,7 +202,7 @@ namespace ProtonSecrets
             {
                 _storageService._storageProvider._configService.Account.RefreshToken = _storageService._storageProvider._api.RefreshToken;
                 _storageService._storageProvider._configService.Account.AccessToken = _storageService._storageProvider._api.AccessToken;
-                _configService.Save();
+                _configService.SaveAccountsToWindowsCredentialManager();
             }
         }
 

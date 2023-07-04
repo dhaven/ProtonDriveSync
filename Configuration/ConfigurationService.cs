@@ -7,37 +7,41 @@ using KeePass.App.Configuration;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
+using CredentialManagement;
+
 namespace ProtonSecrets.Configuration
 {
     public class ConfigurationService
     {
-        private const string ConfigurationFile_Accounts = "ProtonPass.Accounts.json";
 
         public AccountConfiguration Account { get; set; }
         public bool IsLoaded { get; set; }
 
-
-        public void Load()
+        public void Revoke()
         {
-            if (IsLoaded) 
+            var credentialSet = new CredentialSet();
+            credentialSet.Load();
+            var credential = credentialSet.Find(c => c.Target.StartsWith("Keepass:ProtonPassPlugin"));
+            bool success = credential.Delete();
+        }
+
+        public void LoadAccountsFromWindowsCredentialManager()
+        {
+            if (IsLoaded)
                 return;
 
-            var path = ConfigurationInfo();
-            var filename = Path.Combine(path, ConfigurationFile_Accounts);
-            if (!File.Exists(filename))
+            var credentialSet = new CredentialSet();
+            credentialSet.Load();
+            var credential = credentialSet.Find(c => c.Target.StartsWith("Keepass:ProtonPassPlugin"));
+            if (credential == null)
                 return;
-            var configString = File.ReadAllText(filename);
-            if (string.IsNullOrEmpty(configString)) 
-                return;
-            JObject bodyData = JObject.Parse(configString);
+            JObject bodyData = JObject.Parse(credential.Password);
             this.Account = new AccountConfiguration((string)bodyData["KeyPassword"], (string)bodyData["Email"], (string)bodyData["UID"], (string)bodyData["AccessToken"], (string)bodyData["RefreshToken"], false);
             IsLoaded = true;
         }
 
-        public void Save()
+        public void SaveAccountsToWindowsCredentialManager()
         {
-            var path = ConfigurationInfo();
-            var filename = Path.Combine(path, ConfigurationFile_Accounts);
             JObject sessionData = new JObject();
             sessionData["KeyPassword"] = new JValue((string)this.Account.KeyPassword);
             sessionData["Email"] = new JValue((string)this.Account.Email);
@@ -45,36 +49,16 @@ namespace ProtonSecrets.Configuration
             sessionData["AccessToken"] = new JValue((string)this.Account.AccessToken);
             sessionData["RefreshToken"] = new JValue((string)this.Account.RefreshToken);
             var configString = JsonConvert.SerializeObject(sessionData);
-
-            File.WriteAllText(filename, configString);
-        }
-
-        public void Revoke()
-        {
-            var path = ConfigurationInfo();
-            var filename = Path.Combine(path, ConfigurationFile_Accounts);
-            File.Delete(filename);
-        }
-
-        private string ConfigurationInfo()
-        {
-            var isGlobalConfig = !KeePass.Program.Config.Meta.PreferUserConfiguration;
-            var asm = Assembly.GetEntryAssembly();
-            var filename = asm.Location;
-            var directory = Path.GetDirectoryName(filename);
-
-            bool _isPortable = isGlobalConfig
-                && !directory.StartsWith(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles))
-                && !directory.StartsWith(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86));
-
-            if (_isPortable)
+            var credential = new Credential
             {
-                return directory;
-            }
-            else
-            {
-                return AppConfigSerializer.AppDataDirectory;
-            }
+                Target = "Keepass:ProtonPassPlugin",
+                Username = this.Account.Email,
+                Password = configString,
+                PersistanceType = PersistanceType.LocalComputer,
+                Type = CredentialType.Generic,
+                Description = "Credentials required to access Proton account from the Keepass plugin ProtonPass"
+            };
+            credential.Save();
         }
     }
 }
