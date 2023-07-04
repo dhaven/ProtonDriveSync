@@ -5,12 +5,12 @@ using System.Runtime.InteropServices;
 // General Information about an assembly is controlled through the following
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("ProtonSecrets")]
-[assembly: AssemblyDescription("")]
+[assembly: AssemblyTitle("ProtonPass")]
+[assembly: AssemblyDescription("Open Keepass databases stored in ProtonDrive")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
 [assembly: AssemblyProduct("KeePass Plugin")]
-[assembly: AssemblyCopyright("Copyright ©  2023")]
+[assembly: AssemblyCopyright("Copyright ©  2023 dhaven")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 
