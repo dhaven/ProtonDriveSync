@@ -2,7 +2,7 @@
 ProtonPass is a plugin for the password manager app [KeePass](https://keepass.info/index.html). With KeePass passwords are kept in an encrypted database called a KDBX file. ProtonPass provides a solution for accessing KDBX files stored on [ProtonDrive](https://proton.me/drive/free) which is an end-to-end encrypted service. ProtonDrive provides a higher level of security  compared to well known Cloud storage solutions such as Dropbox or Google Drive.
 
 ## Requirements
-- A KeePass installation
+- KeePass version >= 2.50
 - A Proton account
 
 ## Setup
