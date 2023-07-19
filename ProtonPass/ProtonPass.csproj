@@ -1,0 +1,177 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{8FE5A6EC-0AF8-47A2-82AA-29160CCC9F0A}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>ProtonPass</RootNamespace>
+    <AssemblyName>ProtonPass</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <SignAssembly>false</SignAssembly>
+    <KeePassDownloadUrl>https://master.dl.sourceforge.net/project/keepass/KeePass%202.x/2.52/KeePass-2.52.zip</KeePassDownloadUrl>
+    <OutputPath>bin</OutputPath>
+    <NuGetPackageImportStamp>
+    </NuGetPackageImportStamp>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="BCrypt.Net-Next, Version=3.3.2.0, Culture=neutral, PublicKeyToken=1e11be04b6288443, processorArchitecture=MSIL">
+      <HintPath>..\packages\BCrypt.Net-Next.3.3.2\lib\net472\BCrypt.Net-Next.dll</HintPath>
+    </Reference>
+    <Reference Include="BouncyCastle.Cryptography, Version=2.0.0.0, Culture=neutral, PublicKeyToken=072edcf4a5328938, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\packages\BouncyCastle.Cryptography\net461\BouncyCastle.Cryptography.dll</HintPath>
+    </Reference>
+    <Reference Include="CredentialManagement, Version=1.0.2.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\CredentialManagement.1.0.2\lib\net35\CredentialManagement.dll</HintPath>
+    </Reference>
+    <Reference Include="KeePass, Version=2.54.0.16762, Culture=neutral, PublicKeyToken=fed2ed7716aecf5c, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\..\keepass-2.52\KeePass.exe</HintPath>
+    </Reference>
+    <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
+      <HintPath>..\packages\Newtonsoft.Json.13.0.2\lib\net45\Newtonsoft.Json.dll</HintPath>
+    </Reference>
+    <Reference Include="PgpCore, Version=5.0.0.0, Culture=neutral, PublicKeyToken=e84be4b896fe5158, processorArchitecture=MSIL">
+      <HintPath>..\packages\PgpCore.5.10.0\lib\netstandard2.0\PgpCore.dll</HintPath>
+    </Reference>
+    <Reference Include="PlgxTool, Version=0.1.2.41667, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\PlgxTool.1.0.3\lib\net40\PlgxTool.exe</HintPath>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.Buffers, Version=4.0.3.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+      <HintPath>..\packages\System.Buffers.4.5.1\lib\net461\System.Buffers.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Core" />
+    <Reference Include="System.Memory, Version=4.0.1.1, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+      <HintPath>..\packages\System.Memory.4.5.3\lib\netstandard2.0\System.Memory.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Numerics" />
+    <Reference Include="System.Numerics.Vectors, Version=4.1.4.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\packages\System.Numerics.Vectors.4.5.0\lib\net46\System.Numerics.Vectors.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Runtime.CompilerServices.Unsafe, Version=6.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\packages\System.Runtime.CompilerServices.Unsafe.6.0.0\lib\net461\System.Runtime.CompilerServices.Unsafe.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.Data.DataSetExtensions" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="ProtonPassExt.cs" />
+    <Compile Include="Configuration\AccountConfiguration.cs" />
+    <Compile Include="Configuration\ConfigurationService.cs" />
+    <Compile Include="Forms\ProtonDrive2FA.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Forms\ProtonDrive2FA.Designer.cs">
+      <DependentUpon>ProtonDrive2FA.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Forms\ProtonDriveFilePicker.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Forms\ProtonDriveFilePicker.Designer.cs">
+      <DependentUpon>ProtonDriveFilePicker.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Forms\SignedInAccount.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Forms\SignedInAccount.Designer.cs">
+      <DependentUpon>SignedInAccount.cs</DependentUpon>
+    </Compile>
+    <Compile Include="KpResources.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Properties\Resources.Designer.cs">
+      <AutoGen>True</AutoGen>
+      <DesignTime>True</DesignTime>
+      <DependentUpon>Resources.resx</DependentUpon>
+    </Compile>
+    <Compile Include="StorageProvider\Crypto.cs" />
+    <Compile Include="StorageProvider\ProtonAddress.cs" />
+    <Compile Include="StorageProvider\ProtonAPI.cs" />
+    <Compile Include="Forms\ProtonDriveAccountForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="StorageProvider\ProtonDriveStorageProvider.cs" />
+    <Compile Include="StorageProvider\ProtonLink.cs" />
+    <Compile Include="StorageProvider\ProtonShare.cs" />
+    <Compile Include="StorageProvider\SRP.cs" />
+    <Compile Include="StorageProvider\ProtonDriveItem.cs" />
+    <Compile Include="StorageProvider\StorageProviderItemType.cs" />
+    <Compile Include="StorageProvider\StorageService.cs" />
+    <Compile Include="StorageProvider\Util.cs" />
+    <Compile Include="WebRequest\ProtonPassWebRequest.cs" />
+    <Compile Include="WebRequest\ProtonPassWebResponse.cs" />
+    <Compile Include="WebRequest\RequestStream.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="app.config">
+      <ExcludeFromPlgx />
+      <SubType>Designer</SubType>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Forms\ProtonDrive2FA.resx">
+      <DependentUpon>ProtonDrive2FA.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Forms\ProtonDriveFilePicker.resx">
+      <DependentUpon>ProtonDriveFilePicker.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Forms\ProtonDriveAccountForm.resx">
+      <DependentUpon>ProtonDriveAccountForm.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Forms\SignedInAccount.resx">
+      <DependentUpon>SignedInAccount.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Properties\Resources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <PropertyGroup>
+    <PostBuildEvent>
+    </PostBuildEvent>
+  </PropertyGroup>
+  <Target Name="AfterBuild" Condition="'$(Configuration)' == 'Release'">
+    <CallTarget Targets="BuildPlgx" />
+    <!--<Delete Files="$(TargetPath)" />-->
+  </Target>
+  <Import Project="..\packages\PlgxTool.1.0.3\build\PlgxTool.targets" Condition="Exists('..\packages\PlgxTool.1.0.3\build\PlgxTool.targets')" />
+  <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
+    <PropertyGroup>
+      <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
+    </PropertyGroup>
+    <Error Condition="!Exists('..\packages\PlgxTool.1.0.3\build\PlgxTool.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\PlgxTool.1.0.3\build\PlgxTool.targets'))" />
+  </Target>
+</Project>
