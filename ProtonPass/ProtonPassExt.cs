@@ -218,5 +218,13 @@ namespace ProtonPass
 
             return null; // No menu items in other locations
         }
+
+        /// <summary>
+        ///     Returns the URL where KeePass can check for updates of this plugin
+        /// </summary>
+        public override string UpdateUrl
+        {
+            get { return @"https://raw.githubusercontent.com/dhaven/protonPass/main/version_manifest.txt"; }
+        }
     }
 }
