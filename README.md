@@ -26,6 +26,11 @@ Once you have a KDBX file in ProtonDrive you can open it in KeePass with the fol
 
 - **Does ProtonPass downloads the KDBX file to local storage so that KeePass can open it?** Your KDBX file is never written to disk. Instead it is streamed directly to the appllication and kept in memory until the application closes.
 - **Does ProtonPass caches my password?** Not exactly. ProtonPass caches a transformed version of the password called a keyPassword as well as an access key and refresh token. This data is stored inside Windows credential manager. You can delete it at any time by going to _Tools -> ProtonPass settings..._ and clicking on the logout button. If you do so ProtonPass will no longer be able to access your KDBX files in that account.
+- **Can I connect to my Proton account if it has a security key 2fa configured?** At the moment only the time-based one-time password is supported. Contributions to expand this functionality are welcome.
+
+## Contributing
+
+If you would like to contribute to this project please open an Issue to start a conversation about what should be added/modified/fixed/... Once there is an agreement on the changes to be made a PR can be opened.
 
 ## Acknowledgements
 
