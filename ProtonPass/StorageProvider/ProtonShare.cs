@@ -36,7 +36,7 @@ namespace ProtonPass.StorageProvider
             string shareId = "";
             for (int i = 0; i < shares.Count(); i++)
             {
-                if (shares[i]["CreationTime"].ToString() == "")
+                if ((int)shares[i]["Type"] == 1)
                 {
                     shareId = (string)shares[i]["ShareID"];
                 }

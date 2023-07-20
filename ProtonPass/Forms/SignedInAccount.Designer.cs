@@ -1,4 +1,5 @@
-﻿using System.Drawing;
+﻿using Org.BouncyCastle.Crmf;
+using System.Drawing;
 using System.Windows.Forms;
 
 namespace ProtonPass.Forms
@@ -52,13 +53,12 @@ namespace ProtonPass.Forms
             // 
             // lbl_email
             // 
+            this.lbl_email.Anchor = System.Windows.Forms.AnchorStyles.None;
             this.lbl_email.AutoSize = true;
             this.lbl_email.Font = new System.Drawing.Font("Microsoft Sans Serif", 11F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.lbl_email.Location = new System.Drawing.Point(179, 72);
             this.lbl_email.Name = "lbl_email";
-            this.lbl_email.Size = new System.Drawing.Size(207, 24);
             this.lbl_email.TabIndex = 2;
-            this.lbl_email.Text = "david.haven@pm.me";
+            this.lbl_email.Text = this.Email;
             // 
             // pictureBox1
             // 
@@ -95,6 +95,8 @@ namespace ProtonPass.Forms
             ((System.ComponentModel.ISupportInitialize)(this.pictureBox1)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
+            this.lbl_email.Left = (this.ClientSize.Width - this.lbl_email.Width) / 2;
+            this.lbl_email.Top = 72;
 
         }
 

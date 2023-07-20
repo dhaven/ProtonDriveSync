@@ -106,7 +106,7 @@ namespace ProtonPass.StorageProvider {
             }
             catch(Exception exception)
             {
-                throw new Exception("Unbale to initialize user keys: " + exception.Message);
+                throw new Exception("Unable to initialize user keys: " + exception.Message);
             }
         }
         public async Task<JObject> ProtonRequest(string method, string url, StringContent data = null)
@@ -347,6 +347,8 @@ namespace ProtonPass.StorageProvider {
             this.client.DefaultRequestHeaders.Remove("Authorization");
             this.RefreshToken = "";
             this.AccessToken = "";
+            this.addressInfo = null;
+            this.shareInfo = null;
         }
 
         public async Task<IEnumerable<ProtonDriveItem>> GetRootChildren()
