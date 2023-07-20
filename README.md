@@ -3,7 +3,7 @@ ProtonPass is a plugin for the password manager app [KeePass](https://keepass.in
 
 ## Requirements
 - KeePass version >= 2.50
-- A Proton account
+- A Proton account with ProtonDrive activated
 
 ## Setup
 
