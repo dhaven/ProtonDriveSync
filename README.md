@@ -5,7 +5,7 @@ ProtonDriveSync is a plugin for the password manager app [KeePass](https://keepa
 
 ## Requirements
 - KeePass version >= 2.50
-- A Proton account with ProtonDrive activated
+- A Proton account with ProtonDrive activated (just open ProtonDrive once to activate it)
 
 ## Setup
 

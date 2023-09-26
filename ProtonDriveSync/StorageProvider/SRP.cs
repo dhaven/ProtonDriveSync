@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Text;
 using System.Numerics;
 using static BCrypt.Net.BCrypt;
+using System.Linq;
 
 namespace ProtonDriveSync.StorageProvider
 {
@@ -49,8 +50,18 @@ namespace ProtonDriveSync.StorageProvider
             BigInteger BN_0 = new BigInteger(0);
             BigInteger BN_1 = new BigInteger(1);
             BigInteger BN_2 = new BigInteger(2);
+
             BigInteger modulusMinusOne = Util.ByteToBigInteger(modulus) - BN_1;
-            if (BigInteger.Compare(multiplierBn, BN_1) <= 0 || BigInteger.Compare(multiplierBn, modulusMinusOne) >= 0)
+            BigInteger multiplierReduced;
+            BigInteger modulusBn = Util.ByteToBigInteger(modulus);
+            if (BigInteger.Compare(multiplierBn, modulusBn) < 0){
+                multiplierReduced = multiplierBn;
+            }
+            else
+            {
+                BigInteger.DivRem(multiplierBn, modulusBn, out multiplierReduced);
+            }
+            if (BigInteger.Compare(multiplierReduced, BN_1) <= 0 || BigInteger.Compare(multiplierReduced, modulusMinusOne) >= 0)
             {
                 throw new Exception("SRP multiplier is out of bounds");
             }
@@ -71,7 +82,7 @@ namespace ProtonDriveSync.StorageProvider
             // hardcode values for testing
             byte[] x = Util.Digest(Util.Concat(Encoding.ASCII.GetBytes(hashedPassword), modulus));
             BigInteger vBn = BigInteger.ModPow(Util.ByteToBigInteger(generator), Util.ByteToBigInteger(x), Util.ByteToBigInteger(modulus));
-            BigInteger baseBn = Util.ByteToBigInteger(serverEphemeral) - ((multiplierBn * vBn) % Util.ByteToBigInteger(modulus));
+            BigInteger baseBn = Util.ByteToBigInteger(serverEphemeral) - ((multiplierReduced * vBn) % Util.ByteToBigInteger(modulus));
             BigInteger remainder = new BigInteger();
             BigInteger exponentBn = BigInteger.DivRem(Util.ByteToBigInteger(parameters["clientSecret"]) + (Util.ByteToBigInteger(parameters["scramblingParam"]) * Util.ByteToBigInteger(x)), modulusMinusOne, out remainder);
             if (baseBn.Sign == -1) // see https://stackoverflow.com/questions/74664517/c-sharp-gives-me-different-result-of-modpow-from-java-python-is-this-a-bug
