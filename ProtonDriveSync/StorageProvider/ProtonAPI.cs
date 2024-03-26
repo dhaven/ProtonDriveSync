@@ -28,7 +28,6 @@ namespace ProtonDriveSync.StorageProvider {
 
         private HttpClient client;
 
-        internal ProtonAddress addressInfo;
         internal ProtonShare shareInfo;
 
         public string RefreshToken;
@@ -70,7 +69,7 @@ namespace ProtonDriveSync.StorageProvider {
             this.AccessToken = accessToken;
         }
 
-        public async Task InitUserKeys(string email, string keyPassword)
+        public async Task InitUserKeys(string keyPassword)
         {
             //Get user info
             JObject userInfo;
@@ -95,13 +94,9 @@ namespace ProtonDriveSync.StorageProvider {
             PGP userPrivateKey_pgp = new PGP(encryptionKeys);
             try
             {
-                if (this.addressInfo == null)
-                {
-                    this.addressInfo = await ProtonAddress.Initialize(email, userPrivateKey_pgp, this);
-                }
                 if (this.shareInfo == null)
                 {
-                    this.shareInfo = await ProtonShare.Initialize(this.addressInfo, this);
+                    this.shareInfo = await ProtonShare.Initialize(userPrivateKey_pgp, this);
                 }
             }
             catch(Exception exception)
@@ -347,7 +342,6 @@ namespace ProtonDriveSync.StorageProvider {
             this.client.DefaultRequestHeaders.Remove("Authorization");
             this.RefreshToken = "";
             this.AccessToken = "";
-            this.addressInfo = null;
             this.shareInfo = null;
         }
 
@@ -574,7 +568,7 @@ namespace ProtonDriveSync.StorageProvider {
             encryptedNodePassphraseStream.Seek(0, SeekOrigin.Begin);
             string encryptedNodePassphrase = Encoding.UTF8.GetString(encryptedNodePassphraseStream.ToArray());
             MemoryStream nodePassphraseSignatureStr = new MemoryStream();
-            Crypto.Sign(Encoding.UTF8.GetBytes(passphrase), nodePassphraseSignatureStr, addressInfo.privateKey.EncryptionKeys.SecretKey, addressInfo.passphrase.ToCharArray(), true);
+            Crypto.Sign(Encoding.UTF8.GetBytes(passphrase), nodePassphraseSignatureStr, shareInfo.owner.privateKey.EncryptionKeys.SecretKey, shareInfo.owner.passphrase.ToCharArray(), true);
             string armoredPassphraseSignature = Encoding.UTF8.GetString(nodePassphraseSignatureStr.ToArray());
 
             //generate session key
@@ -587,7 +581,7 @@ namespace ProtonDriveSync.StorageProvider {
             //encrypt filename and compute hash of filename
             //create clientUID
             string filenameHash = Crypto.ComputeFilenameHash(filename, parent.nodeHashKey);
-            string encryptedFilename = await Crypto.EncryptArmoredStringAndSignAsync(filename, parentNodeEncPrivKey.PublicKey, null, addressInfo.privateKey.EncryptionKeys.SecretKey, addressInfo.passphrase.ToCharArray());
+            string encryptedFilename = await Crypto.EncryptArmoredStringAndSignAsync(filename, parentNodeEncPrivKey.PublicKey, null, shareInfo.owner.privateKey.EncryptionKeys.SecretKey, shareInfo.owner.passphrase.ToCharArray());
             string clientUID = Util.GenerateProtonWebUID();
 
             //try encrypting our file (we don't want the public key encrypted session key to be part of this)
@@ -641,7 +635,7 @@ namespace ProtonDriveSync.StorageProvider {
                             {"NodePassphrase", encryptedNodePassphrase },
                             {"NodePassphraseSignature", armoredPassphraseSignature },
                             {"ParentLinkID", parent.id},
-                            {"SignatureAddress", this.addressInfo.email},
+                            {"SignatureAddress", this.shareInfo.owner.email},
                             {"ClientUID", clientUID }
                         };
                     string createFileBodyJSON = JsonConvert.SerializeObject(createFileBody);
@@ -662,7 +656,7 @@ namespace ProtonDriveSync.StorageProvider {
 
                 //Create signature of block data
                 MemoryStream blockDataSignatureStr = new MemoryStream();
-                Crypto.Sign(blockBytes, blockDataSignatureStr, addressInfo.privateKey.EncryptionKeys.SecretKey, addressInfo.passphrase.ToCharArray(), false);
+                Crypto.Sign(blockBytes, blockDataSignatureStr, shareInfo.owner.privateKey.EncryptionKeys.SecretKey, shareInfo.owner.passphrase.ToCharArray(), false);
                 //Encrypt signature of block data
                 string armoredEncryptedBlockSignature = "";
                 using (Stream armoredEncryptedBlockSignatureStr = new MemoryStream())
@@ -703,7 +697,7 @@ namespace ProtonDriveSync.StorageProvider {
                                 }
                             }
                         },
-                        { "AddressID", addressInfo.id },
+                        { "AddressID", shareInfo.owner.id },
                         { "LinkID", createdFileID },
                         { "RevisionID", createdFileRevisionID },
                         { "ShareID", this.shareInfo.id }
@@ -757,11 +751,11 @@ namespace ProtonDriveSync.StorageProvider {
             }
             //sign the hash
             MemoryStream signedHash = new MemoryStream();
-            Crypto.Sign(fileHash, signedHash, addressInfo.privateKey.EncryptionKeys.SecretKey, addressInfo.passphrase.ToCharArray(), true);
+            Crypto.Sign(fileHash, signedHash, shareInfo.owner.privateKey.EncryptionKeys.SecretKey, shareInfo.owner.passphrase.ToCharArray(), true);
             string armoredSignedHash = Encoding.UTF8.GetString(signedHash.ToArray());
 
             //create extended attributes and encrypt them
-            string encryptedXAttr = await Crypto.EncryptFileExtendedAttributes(totalFileLength, nodeEncPrivKey.PublicKey, addressInfo.privateKey.EncryptionKeys.SecretKey, addressInfo.passphrase.ToCharArray());
+            string encryptedXAttr = await Crypto.EncryptFileExtendedAttributes(totalFileLength, nodeEncPrivKey.PublicKey, shareInfo.owner.privateKey.EncryptionKeys.SecretKey, shareInfo.owner.passphrase.ToCharArray());
 
             //update the file revision
             Dictionary<string, dynamic> updateFileRevisionBody = new Dictionary<string, dynamic>()
@@ -769,7 +763,7 @@ namespace ProtonDriveSync.StorageProvider {
                         { "State", 1 },
                         { "BlockList", blockList.ToArray()},
                         { "ManifestSignature", armoredSignedHash },
-                        { "SignatureAddress", this.addressInfo.email },
+                        { "SignatureAddress", this.shareInfo.owner.email },
                         { "XAttr", encryptedXAttr }
                     };
             string updateFileRevisionBodyJSON = JsonConvert.SerializeObject(updateFileRevisionBody);
@@ -850,7 +844,7 @@ namespace ProtonDriveSync.StorageProvider {
                 //Create signature of block data
                 //byte[] helloWorldBytes = File.ReadAllBytes("helloworld");
                 MemoryStream blockDataSignatureStr = new MemoryStream();
-                Crypto.Sign(blockBytes, blockDataSignatureStr, addressInfo.privateKey.EncryptionKeys.SecretKey, addressInfo.passphrase.ToCharArray(), false);
+                Crypto.Sign(blockBytes, blockDataSignatureStr, shareInfo.owner.privateKey.EncryptionKeys.SecretKey, shareInfo.owner.passphrase.ToCharArray(), false);
                 //Encrypt signature of block data
                 string armoredEncryptedBlockSignature = await Crypto.EncryptArmoredStringAndSignAsync(Encoding.UTF8.GetString(blockDataSignatureStr.ToArray()), nodeEncPrivKey.PublicKey, key, nodeSignPrivKey, link.passphrase.ToCharArray());
 
@@ -885,7 +879,7 @@ namespace ProtonDriveSync.StorageProvider {
                                 }
                             }
                         },
-                        { "AddressID", addressInfo.id },
+                        { "AddressID", shareInfo.owner.id },
                         { "LinkID", link.id },
                         { "RevisionID", createdFileRevisionID },
                         { "ShareID", this.shareInfo.id }
@@ -934,15 +928,15 @@ namespace ProtonDriveSync.StorageProvider {
             }
             //sign the hash
             MemoryStream signedHash = new MemoryStream();
-            Crypto.Sign(fileHash, signedHash, addressInfo.privateKey.EncryptionKeys.SecretKey, addressInfo.passphrase.ToCharArray(), true);
+            Crypto.Sign(fileHash, signedHash, shareInfo.owner.privateKey.EncryptionKeys.SecretKey, shareInfo.owner.passphrase.ToCharArray(), true);
             string armoredSignedHash = Encoding.UTF8.GetString(signedHash.ToArray());
 
             //create extended attributes and encrypt them
             MemoryStream xAttrEncryptKeyStream = new MemoryStream(nodeEncPrivKey.PublicKey.GetEncoded());
             xAttrEncryptKeyStream.Seek(0, SeekOrigin.Begin);
-            MemoryStream xAttrSignKeyStream = new MemoryStream(addressInfo.privateKey.EncryptionKeys.SecretKey.GetEncoded());
+            MemoryStream xAttrSignKeyStream = new MemoryStream(shareInfo.owner.privateKey.EncryptionKeys.SecretKey.GetEncoded());
             xAttrSignKeyStream.Seek(0, SeekOrigin.Begin);
-            string encryptedXAttr = await Crypto.EncryptFileExtendedAttributes(totalFileLength, nodeEncPrivKey.PublicKey, addressInfo.privateKey.EncryptionKeys.SecretKey, addressInfo.passphrase.ToCharArray());
+            string encryptedXAttr = await Crypto.EncryptFileExtendedAttributes(totalFileLength, nodeEncPrivKey.PublicKey, shareInfo.owner.privateKey.EncryptionKeys.SecretKey, shareInfo.owner.passphrase.ToCharArray());
 
             //update the file revision
             Dictionary<string, dynamic> updateFileRevisionBody = new Dictionary<string, dynamic>()
@@ -950,7 +944,7 @@ namespace ProtonDriveSync.StorageProvider {
                         { "State", 1 },
                         { "BlockList", blockList.ToArray()},
                         { "ManifestSignature", armoredSignedHash },
-                        { "SignatureAddress", this.addressInfo.email },
+                        { "SignatureAddress", this.shareInfo.owner.email },
                         { "XAttr", encryptedXAttr }
                     };
             string updateFileRevisionBodyJSON = JsonConvert.SerializeObject(updateFileRevisionBody);
