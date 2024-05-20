@@ -9,6 +9,7 @@ using KeePassLib.Serialization;
 using ProtonDriveSync.Configuration;
 using ProtonDriveSync.StorageProvider;
 using ProtonDriveSync.Forms;
+using PgpCore;
 
 namespace ProtonDriveSync
 {

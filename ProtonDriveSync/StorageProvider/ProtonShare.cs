@@ -12,16 +12,18 @@ namespace ProtonDriveSync.StorageProvider
         public string id;
         public string passphrase;
         public string linkID;
+        public ProtonAddress owner;
 
-        public ProtonShare(PGP privateKey, string id, string passphrase, string linkID)
+        public ProtonShare(PGP privateKey, string id, string passphrase, string linkID, ProtonAddress owner)
         {
             this.privateKey = privateKey;
             this.id = id;
             this.passphrase = passphrase;
             this.linkID = linkID;
+            this.owner = owner;
         }
 
-        public static async Task<ProtonShare> Initialize(ProtonAddress addressInfo, ProtonAPI api)
+        public static async Task<ProtonShare> Initialize(PGP userPrivateKey, ProtonAPI api)
         {
             JObject sharesInfo;
             try
@@ -52,11 +54,15 @@ namespace ProtonDriveSync.StorageProvider
             }
             string sharePrivateKey = (string)shareInfo["Key"];
             string sharePassphrase = (string)shareInfo["Passphrase"];
+            string owner = (string)shareInfo["Creator"];
+
+            //Initialize the address object
+            ProtonAddress addressInfo = await ProtonAddress.Initialize(owner, userPrivateKey, api);
 
             //Decrypt sharePassphrase
             string decryptedPassphrase = await addressInfo.privateKey.DecryptArmoredStringAsync(sharePassphrase);
             EncryptionKeys shareKeys = new EncryptionKeys(sharePrivateKey, decryptedPassphrase);
-            return new ProtonShare(new PGP(shareKeys), shareId, decryptedPassphrase, (string)shareInfo["LinkID"]);
+            return new ProtonShare(new PGP(shareKeys), shareId, decryptedPassphrase, (string)shareInfo["LinkID"], addressInfo);
         }
     }
 }
