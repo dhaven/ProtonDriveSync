@@ -538,10 +538,9 @@ namespace ProtonDriveSync.StorageProvider {
             byte[] value = new byte[32];
             rand.NextBytes(value);
             string passphrase = Convert.ToBase64String(value);
-
             // create new node key
             PgpSecretKeyRing newNodeKeyRing = Crypto.GenerateKey(passphrase.ToCharArray());
-
+            
             // get armored version of new node key
             string newNodeArmoredKeyStr = Crypto.GetArmoredKey(newNodeKeyRing);
 
@@ -596,6 +595,7 @@ namespace ProtonDriveSync.StorageProvider {
             List<Dictionary<string, dynamic>> blockList = new List<Dictionary<string, dynamic>> { };
             string createdFileID = "";
             string createdFileRevisionID = "";
+            byte[] verificationCode_bytes = null;
             while (numBytesToRead > 0)
             {
                 // Read may return anything from 0 to numBytesToRead.
@@ -649,6 +649,17 @@ namespace ProtonDriveSync.StorageProvider {
                     {
                         throw new Exception("Unable to create file in Drive: " + exception.Message);
                     }
+                    // fetch verification data
+                    try
+                    {
+                        JObject verificationData = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/links/" + createdFileID + "/revisions/" + createdFileRevisionID + "/verification");
+                        string verificationCode = (string)verificationData["VerificationCode"];
+                        verificationCode_bytes = Convert.FromBase64String(verificationCode);
+                    }
+                    catch (Exception exception)
+                    {
+                        throw new Exception("Unable to create file in Drive: " + exception.Message);
+                    }
                 }
                 //only keep the encrypted data part of the PGP message
                 int encDataLength = encDataByte.Length - contentKeyPacket_byte.Length;
@@ -680,7 +691,18 @@ namespace ProtonDriveSync.StorageProvider {
                 {
                     fileHash = Util.Concat(fileHash, hashedEncryptedBlockData);
                 }
-
+                //compute verifierToken
+                byte[] verificationToken = verificationCode_bytes.Select<byte, byte>(
+                    (val, i) => 
+                    {
+                        byte comp = 0;
+                        if (i < encDataByte.Length)
+                        {
+                            comp = encDataByte[i];
+                        }
+                        return (byte)(val ^ comp);
+                    }
+                ).ToArray();
                 //create the block in the backend
                 Dictionary<string, dynamic> createBlocksBody = new Dictionary<string, dynamic>()
                     {
@@ -693,7 +715,14 @@ namespace ProtonDriveSync.StorageProvider {
                                     {"Index", index+1 },
                                     {"Hash", Convert.ToBase64String(hashedEncryptedBlockData) },
                                     {"EncSignature", armoredEncryptedBlockSignature  },
-                                    {"Size", encDataByte.Length }
+                                    {"Size", encDataByte.Length },
+                                    {
+                                        "Verifier",
+                                        new Dictionary<string, dynamic>()
+                                        {
+                                            { "Token", Convert.ToBase64String(verificationToken) }
+                                        }
+                                    }
                                 }
                             }
                         },
@@ -819,6 +848,7 @@ namespace ProtonDriveSync.StorageProvider {
             byte[] fileHash = null;
             int totalFileLength = 0;
             List<Dictionary<string, dynamic>> blockList = new List<Dictionary<string, dynamic>> { };
+            byte[] verificationCode_bytes = null;
             while (numBytesToRead > 0)
             {
                 // Read may return anything from 0 to numBytesToRead.
@@ -857,12 +887,34 @@ namespace ProtonDriveSync.StorageProvider {
                 {
                     fileHash = new byte[hashedEncryptedBlockData.Length];
                     Array.Copy(hashedEncryptedBlockData, fileHash, hashedEncryptedBlockData.Length);
+                    // fetch verification data
+                    try
+                    {
+                        JObject verificationData = await ProtonRequest("GET", "https://api.protonmail.ch/drive/shares/" + this.shareInfo.id + "/links/" + link.id + "/revisions/" + createdFileRevisionID + "/verification");
+                        string verificationCode = (string)verificationData["VerificationCode"];
+                        verificationCode_bytes = Convert.FromBase64String(verificationCode);
+                    }
+                    catch (Exception exception)
+                    {
+                        throw new Exception("Unable to update file in Drive: " + exception.Message);
+                    }
                 }
                 else
                 {
                     fileHash = Util.Concat(fileHash, hashedEncryptedBlockData);
                 }
-
+                //compute verifierToken
+                byte[] verificationToken = verificationCode_bytes.Select<byte, byte>(
+                    (val, i) =>
+                    {
+                        byte comp = 0;
+                        if (i < encDataByte.Length)
+                        {
+                            comp = encDataByte[i];
+                        }
+                        return (byte)(val ^ comp);
+                    }
+                ).ToArray();
                 //create the block in the backend
                 Dictionary<string, dynamic> createBlocksBody = new Dictionary<string, dynamic>()
                     {
@@ -875,7 +927,14 @@ namespace ProtonDriveSync.StorageProvider {
                                     {"Index", index+1 },
                                     {"Hash", Convert.ToBase64String(hashedEncryptedBlockData) },
                                     {"EncSignature", armoredEncryptedBlockSignature  },
-                                    {"Size", encDataByte.Length }
+                                    {"Size", encDataByte.Length },
+                                    {
+                                        "Verifier",
+                                        new Dictionary<string, dynamic>()
+                                        {
+                                            { "Token", Convert.ToBase64String(verificationToken) }
+                                        }
+                                    }
                                 }
                             }
                         },
