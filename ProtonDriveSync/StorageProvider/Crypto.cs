@@ -12,6 +12,9 @@ using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Security;
 using PgpCore;
 using Newtonsoft.Json;
+using System.Linq;
+using System.Net.Sockets;
+using Org.BouncyCastle.Bcpg.Sig;
 
 namespace ProtonDriveSync.StorageProvider
 {
@@ -65,14 +68,28 @@ namespace ProtonDriveSync.StorageProvider
             signing_kpg.Init(new Ed25519KeyGenerationParameters(new SecureRandom()));
             AsymmetricCipherKeyPair newNodeSigningKey = signing_kpg.GenerateKeyPair();
             string username = "Drive key";
+            DateTime now = DateTime.UtcNow;
+            PgpSignatureSubpacketGenerator signHashGen = new PgpSignatureSubpacketGenerator();
+            CompressionAlgorithmTag[] preferredCompressionAlgorithms = new CompressionAlgorithmTag[] { CompressionAlgorithmTag.Uncompressed };
+            HashAlgorithmTag[] preferredHashAlgorithmTags = new HashAlgorithmTag[] { HashAlgorithmTag.Sha256};
+            SymmetricKeyAlgorithmTag[] preferredSymetricKeyAlgorithms = new SymmetricKeyAlgorithmTag[] { SymmetricKeyAlgorithmTag.Aes256 };
+            signHashGen.SetPreferredCompressionAlgorithms(false, Array.ConvertAll(preferredCompressionAlgorithms, item => (int)item));
+            signHashGen.SetPreferredHashAlgorithms(false, Array.ConvertAll(preferredHashAlgorithmTags, item => (int)item));
+            signHashGen.SetPreferredSymmetricAlgorithms(false, Array.ConvertAll(preferredSymetricKeyAlgorithms, item => (int)item));
+            signHashGen.SetFeature(false, Features.FEATURE_MODIFICATION_DETECTION);
+            signHashGen.SetKeyExpirationTime(false, 0);
+            signHashGen.SetSignatureExpirationTime(false, 0);
+            signHashGen.SetKeyFlags(false, PgpKeyFlags.CanCertify | PgpKeyFlags.CanEncryptCommunications | PgpKeyFlags.CanEncryptStorage | PgpKeyFlags.CanSign);
+            
             PgpKeyRingGenerator krg = new PgpKeyRingGenerator(
                 PgpSignature.DefaultCertification,
-                new PgpKeyPair(PublicKeyAlgorithmTag.EdDsa, newNodeSigningKey, DateTime.UtcNow),
+                new PgpKeyPair(PublicKeyAlgorithmTag.EdDsa, newNodeSigningKey, now),
                 username,
-                SymmetricKeyAlgorithmTag.Aes128,
+                SymmetricKeyAlgorithmTag.Aes256,
+                HashAlgorithmTag.Sha512,
                 passphrase,
                 true,
-                null,
+                signHashGen.Generate(),
                 null,
                 new SecureRandom()
                 );
@@ -80,8 +97,8 @@ namespace ProtonDriveSync.StorageProvider
             decrypt_kpg.Init(new X25519KeyGenerationParameters(new SecureRandom()));
             AsymmetricCipherKeyPair newNodeEncryptionKey = decrypt_kpg.GenerateKeyPair();
             krg.AddSubKey(
-                new PgpKeyPair(PublicKeyAlgorithmTag.ECDH, newNodeEncryptionKey, DateTime.UtcNow),
-                HashAlgorithmTag.Sha256
+                new PgpKeyPair(PublicKeyAlgorithmTag.ECDH, newNodeEncryptionKey, now),
+                HashAlgorithmTag.Sha512
                 );
             PgpSecretKeyRing skr = krg.GenerateSecretKeyRing();
             return skr;
@@ -277,6 +294,42 @@ namespace ProtonDriveSync.StorageProvider
             string xAttrString = JsonConvert.SerializeObject(xAttr);
             MemoryStream encryptedXAttr = new MemoryStream();
             return await EncryptArmoredStringAndSignAsync(xAttrString, pubKey, null, signingKey, passphrase, true);
+        }
+
+        public static bool CompareKeys(PgpSecretKeyRing keyRingCSharp, PgpSecretKeyRing keyRingJS, string passphrase)
+        {
+            PgpPublicKey[] publicKeysCSharp = keyRingCSharp.GetPublicKeys().ToArray();
+            PgpPublicKey[] publicKeysJS = keyRingJS.GetPublicKeys().ToArray();
+            for (int i = 0; i < publicKeysCSharp.Length; i++)
+            {
+                PgpPublicKey keyCSharp = publicKeysCSharp[i];
+                PgpPublicKey keyJS = publicKeysJS[i];
+                byte[] trustData1 = keyCSharp.GetTrustData();
+                byte[] trustData2 = keyJS.GetTrustData();
+                long validity1 = keyCSharp.GetValidSeconds();
+                long validity2 = keyJS.GetValidSeconds();
+                string[] userIds1 = keyCSharp.GetUserIds().ToArray();
+                string[] userIds2 = keyJS.GetUserIds().ToArray();
+                PgpSignature[] signatures1 = keyCSharp.GetSignatures().ToArray();
+                PgpSignature[] signatures2 = keyJS.GetSignatures().ToArray();
+
+            }
+            PgpSecretKey[] secretKeysCSharp = keyRingCSharp.GetSecretKeys().ToArray();
+            PgpSecretKey[] secretKeysJS = keyRingJS.GetSecretKeys().ToArray();
+            for (int i = 0; i < secretKeysCSharp.Length; i++)
+            {
+                PgpSecretKey keyCSharp = secretKeysCSharp[i];
+                PgpSecretKey keyJS = secretKeysJS[i];
+                byte[] fingerprint1 = keyCSharp.GetFingerprint();
+                byte[] fingerprint2 = keyJS.GetFingerprint();
+                PgpPrivateKey privKey1 = keyCSharp.ExtractPrivateKey(passphrase.ToCharArray());
+                PgpPrivateKey privKey2 = keyJS.ExtractPrivateKey(passphrase.ToCharArray());
+                PublicKeyAlgorithmTag algo1 = privKey1.PublicKeyPacket.Algorithm;
+                PublicKeyAlgorithmTag algo2 = privKey2.PublicKeyPacket.Algorithm;
+                DateTime time1 = privKey1.PublicKeyPacket.GetTime();
+                DateTime time2 = privKey2.PublicKeyPacket.GetTime();
+            }
+            return false;
         }
     }
 }
